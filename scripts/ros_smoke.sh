@@ -29,8 +29,12 @@ if [ ! -f "$ros_install/setup.bash" ]; then
   exit 2
 fi
 
+# ROS's setup.bash reads variables it does not define itself, which trips `set -u`
+# ("AMENT_TRACE_SETUP_FILES: unbound variable").
+set +u
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 source "$ros_install/setup.bash"
+set -u
 
 clip=/tmp/erde-ros-smoke.mp4
 "$erde_bin" gen "$clip" --size 320x240 --frames 300 --fps 30 --crf 23 >/dev/null 2>&1
@@ -58,7 +62,17 @@ if [ -z "$format" ]; then
   exit 1
 fi
 
-stats=$(timeout 10 ros2 service call /erde/stats std_srvs/srv/Trigger 2>/dev/null | tail -1)
+# The first call can land while the node is still finishing a tick; retry a few times.
+stats=""
+for attempt in 1 2 3; do
+  # ros2 CLI prints the response through its logger (stderr), so 2>&1 and pull the payload out.
+  stats=$(timeout 15 ros2 service call /erde/stats std_srvs/srv/Trigger 2>&1 \
+    | tr -d '\r' | grep -o 'pulled=.*' | tail -1)
+  case "$stats" in
+    *published=*) break ;;
+  esac
+  sleep 2
+done
 echo "lifecycle: $state"
 echo "message format: $format"
 echo "stats: $stats"
