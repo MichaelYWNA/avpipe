@@ -11,14 +11,20 @@
 
 namespace erde {
 
-/// Opens a container and hands out its packets.
+/// Opens a container or a live device and hands out its packets.
 ///
 /// Deliberately dumb: it does not decode, does not buffer more than one packet, and does not
 /// guess which stream the caller wants - `select_stream()` decides that, and every packet from
 /// another stream is unreffed immediately so a multi-stream file cannot grow memory.
+///
+/// `format_name` / `options` are the escape hatch for devices: opening `/dev/video0` needs
+/// `format=v4l2` plus options such as `video_size=1280x720,framerate=30`; leaving them empty
+/// means "let libav probe the file", which is what every file-based caller wants.
 class Demuxer : public PacketSource {
  public:
-  static Expected<std::unique_ptr<Demuxer>> open(const std::string& path);
+  static Expected<std::unique_ptr<Demuxer>> open(const std::string& path,
+                                                 const std::string& format_name = {},
+                                                 const std::string& options = {});
   ~Demuxer() override;
 
   Expected<Packet> pull() override;
@@ -34,6 +40,8 @@ class Demuxer : public PacketSource {
 
   double duration_seconds() const;
   std::string format_name() const;
+  /// True when the input is a live device (no duration, no seeking).
+  bool is_live() const;
 
   int64_t packets_read() const { return packets_read_; }
 

@@ -347,7 +347,8 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   PipelineStats stats;
   const auto started = Clock::now();
 
-  auto probe_demuxer = Demuxer::open(request.input);
+  auto probe_demuxer =
+      Demuxer::open(request.input, request.input_format, request.input_options);
   if (!probe_demuxer) {
     return probe_demuxer.error();
   }
@@ -376,7 +377,8 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   std::unique_ptr<Demuxer> audio_demuxer;
 
   if (want_video) {
-    auto opened = Demuxer::open(request.input);
+    auto opened =
+        Demuxer::open(request.input, request.input_format, request.input_options);
     if (!opened) {
       return opened.error();
     }
@@ -392,7 +394,8 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   }
 
   if (want_audio) {
-    auto opened = Demuxer::open(request.input);
+    auto opened =
+        Demuxer::open(request.input, request.input_format, request.input_options);
     if (!opened) {
       return opened.error();
     }
@@ -495,6 +498,8 @@ Expected<PipelineStats> transcode_audio(const AudioTranscodeRequest& request) {
   audio_request.audio_encode.sample_rate = request.sample_rate;
   audio_request.audio_encode.channels = request.channels;
   audio_request.audio_filter = request.filter;
+  audio_request.input_format = request.input_format;
+  audio_request.input_options = request.input_options;
   audio_request.include_video = false;
   audio_request.include_audio = true;
   return transcode(audio_request);
@@ -694,8 +699,9 @@ Expected<PipelineStats> generate(const GenerateRequest& request) {
   return stats;
 }
 
-Expected<ProbeReport> probe(const std::string& path) {
-  auto demuxer = Demuxer::open(path);
+Expected<ProbeReport> probe(const std::string& path, const std::string& input_format,
+                            const std::string& input_options) {
+  auto demuxer = Demuxer::open(path, input_format, input_options);
   if (!demuxer) {
     return demuxer.error();
   }

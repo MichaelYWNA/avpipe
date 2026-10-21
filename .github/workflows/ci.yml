@@ -71,3 +71,39 @@ jobs:
           else
             echo "vaapi failed as expected (no device on the runner)"
           fi
+
+  ros2-layer:
+    runs-on: ubuntu-24.04
+    container:
+      image: ros:jazzy-ros-base
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libav, colcon and build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config python3-colcon-common-extensions \
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswscale-dev libswresample-dev libavfilter-dev
+
+      - name: Build and install the erde core library
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j"$(nproc)"
+          cmake --install build --prefix /opt/erde
+          ctest --test-dir build --output-on-failure
+
+      - name: Build the ROS 2 package
+        env:
+          CMAKE_PREFIX_PATH: /opt/erde
+          AMENT_PREFIX_PATH: /opt/erde
+        run: |
+          source /opt/ros/jazzy/setup.bash
+          colcon build --base-paths erde_ros --event-handlers console_cohesion+
+
+      - name: Smoke test the node
+        env:
+          CMAKE_PREFIX_PATH: /opt/erde
+          AMENT_PREFIX_PATH: /opt/erde
+        run: bash scripts/ros_smoke.sh

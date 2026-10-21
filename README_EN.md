@@ -76,6 +76,7 @@ A three-state `pull()` makes "nothing right now" and "nothing forever" distingui
 | Filters | `--filter`, `--audio-filter` accept any libavfilter chain | `fps=15`, `crop=…`, `atempo=…`, `volume=…` |
 | Muxing | several streams into one container | interleaving handled by `av_interleaved_write_frame` |
 | Hardware | `--hw vaapi` / `--hw cuda` | upload path implemented; not exercised without a GPU (see [limitations](#8-known-limitations)) |
+| ROS 2 | `erde_ros` lifecycle node | node owns the stage graph, publishes `CompressedImage`, exposes diagnostics and a stats service (see [6.5](#65-ros-2-layer-erde_ros)) |
 
 ## 3. Quick start
 
@@ -244,6 +245,35 @@ docs/DESIGN.md      design trade-offs and the bugs behind them
 | RAII `Ptr` with deleter policies | libav frees through both `f(T**)` and `f(T*)` (`sws_freeContext`) |
 | Encoder time base `1/fps` | containers want 1/600 (AVI) or 1/15360 (MP4); scaling from a coarse base stays exact |
 | Re-read geometry/time base after a filter | `crop` changes size, `fps` changes the time base; the encoder cannot reuse the source values |
+
+### 6.5 ROS 2 layer: `erde_ros`
+
+`erde_core` is a plain C++ library; `erde_ros` is a lifecycle node on top of it - **not** a chain
+of `ros2_control` controller plugins. The node owns the pipeline object graph: `on_configure`
+builds the chain, `on_activate` starts the timer, `on_deactivate` flushes and stops it. The media
+stages stay ordinary classes that unit tests can drive directly.
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+cmake --install build --prefix /opt/erde
+
+source /opt/ros/jazzy/setup.bash
+export CMAKE_PREFIX_PATH=/opt/erde:$CMAKE_PREFIX_PATH
+colcon build --base-paths erde_ros
+
+source install/setup.bash
+ros2 launch erde_ros erde.launch.py input:=/tmp/av.mp4
+```
+
+| Interface | Meaning |
+|---|---|
+| topic `~/image/compressed` | `sensor_msgs/CompressedImage`, `format` is the encoder name |
+| service `~/stats` | `std_srvs/Trigger` returning `pulled / published / errors / packets` |
+| diagnostics | once per second: codec, frame counters; WARN when idle or finished |
+| lifecycle | `configure → activate → deactivate → cleanup` |
+
+Measured on this machine: node `active`, `pulled=298 published=278 errors=0` in 10 s; the gap is
+x264 lookahead, not dropped frames.
 
 ## 7. Tests and measurements
 

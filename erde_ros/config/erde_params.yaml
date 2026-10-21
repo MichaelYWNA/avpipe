@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: MIT
+#
+# Example parameters for `erde_node` (used by the integration test as well).
+erde:
+  ros__parameters:
+    input: /tmp/erde-ros-input.mp4
+    input_format: ''
+    input_options: ''
+    filter: ''
+    width: 0
+    height: 0
+    codec: libx264
+    bitrate: 2000000
+    gop: 12
+    fps: 30
+    frame_id: camera
+    topic: ~/image/compressed
+    autostart: true

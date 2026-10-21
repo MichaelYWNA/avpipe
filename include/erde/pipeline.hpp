@@ -43,6 +43,10 @@ struct TranscodeRequest {
   std::string audio_filter;
   bool include_video = true;
   bool include_audio = true;
+  /// Demuxer escape hatch for devices: "v4l2", "pulse", "alsa", ...
+  std::string input_format;
+  /// Device options, e.g. "video_size=1280x720,framerate=30".
+  std::string input_options;
   /// True when the caller set the frame rate explicitly. Without a filter that changes the frame
   /// rate this pipeline cannot convert 30 fps to 24 fps, so a mismatch is reported instead of
   /// producing a stream whose metadata lies about its cadence.
@@ -56,6 +60,8 @@ struct AudioTranscodeRequest {
   int sample_rate = 0;  ///< 0 keeps the source rate
   int channels = 0;     ///< 0 keeps the source layout
   std::string filter;   ///< optional libavfilter chain, e.g. "atempo=2.0"
+  std::string input_format;
+  std::string input_options;
 };
 
 struct GenerateRequest {
@@ -103,8 +109,9 @@ Expected<PipelineStats> transcode_audio(const AudioTranscodeRequest& request);
 /// tested without any input file.
 Expected<PipelineStats> generate(const GenerateRequest& request);
 
-/// Reads a container and reports its streams and packet counts.
-Expected<ProbeReport> probe(const std::string& path);
+/// Reads a container (or a device) and reports its streams and packet counts.
+Expected<ProbeReport> probe(const std::string& path, const std::string& input_format = {},
+                            const std::string& input_options = {});
 
 /// Runs `transcode()` `runs` times and reports the throughput of the whole chain.
 Expected<BenchReport> bench(const TranscodeRequest& request, int runs);

@@ -54,6 +54,7 @@ libav\*，一份 `cmake` 就能编出一个命令行工具。
   - [6.2 三个接口](#62-三个接口)
   - [6.3 目录结构](#63-目录结构)
   - [6.4 关键设计](#64-关键设计)
+  - [6.5 ROS 2 层：`erde_ros`](#65-ros-2-层erde_ros)
 - [7. 测试与实测](#7-测试与实测)
   - [7.1 测试索引](#71-测试索引)
   - [7.2 实测数据](#72-实测数据)
@@ -89,6 +90,7 @@ Expected<Frame> Decoder::pull();   // 值 / need_more / end_of_stream
 | 滤镜 | `--filter`、`--audio-filter` 接任意 libavfilter 链 | `fps=15`、`crop=…`、`atempo=…`、`volume=…` |
 | 混流 | 一个容器写多路流 | `av_interleaved_write_frame` 负责交织 |
 | 硬件编码 | `--hw vaapi` / `--hw cuda` | 设备帧上传已实现，本机无 GPU 未真机验证（见[限制](#8-已知限制)） |
+| ROS 2 | `erde_ros` 生命周期节点 | 节点持有 stage 图，发布 `CompressedImage`，带 diagnostics 与 stats 服务（见 [6.5](#65-ros-2-层erde_ros)） |
 
 ## 3. 快速开始
 
@@ -259,6 +261,40 @@ docs/DESIGN.md      设计取舍与踩坑记录（时间基、滤镜、多流、
 | 编码器时间基 `1/fps` | 容器要 1/600（AVI）或 1/15360（MP4），从粗基缩放才不丢精度 |
 | 滤镜后重新测几何/时间基 | `crop` 改尺寸、`fps` 改时间基，编码器不能沿用源的参数 |
 
+### 6.5 ROS 2 层：`erde_ros`
+
+`erde_core` 是纯 C++ 库，`erde_ros` 是架在它上面的生命周期节点——**不是** `ros2_control` 的
+controller 插件链：节点自己持有管线对象图，`on_configure` 建链、`on_activate` 起定时器、
+`on_deactivate` flush 并停表。这样媒体 stage 仍然是能被单元测试直接驱动的普通类。
+
+```bash
+# 1) 装核心库（供 find_package(erde) 使用）
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
+cmake --install build --prefix /opt/erde
+
+# 2) 编 ROS 2 包
+source /opt/ros/jazzy/setup.bash
+export CMAKE_PREFIX_PATH=/opt/erde:$CMAKE_PREFIX_PATH
+colcon build --base-paths erde_ros
+
+# 3) 跑起来（文件或设备）
+source install/setup.bash
+ros2 launch erde_ros erde.launch.py input:=/tmp/av.mp4
+# 设备输入：
+ros2 launch erde_ros erde.launch.py input:=/dev/video0 input_format:=v4l2 \
+    input_options:='video_size=1280x720,framerate=30'
+```
+
+| 接口 | 说明 |
+|---|---|
+| 话题 `~/image/compressed` | `sensor_msgs/CompressedImage`，`format` 为编码器名（如 `libx264`） |
+| 服务 `~/stats` | `std_srvs/Trigger`，返回 `pulled / published / errors / packets` |
+| 诊断 `~/diagnostics` | 每秒一次，含 codec、帧数、解码器计数；未激活或源结束时为 WARN |
+| 生命周期 | `configure → activate → deactivate → cleanup`，`autostart:=true` 时自动前两步 |
+
+实测（本机，320×240 25 秒素材）：节点 `active`，10 秒内 `pulled=298 published=278 errors=0`，
+差值来自 x264 的 lookahead——不是丢帧。
+
 ## 7. 测试与实测
 
 ### 7.1 测试索引
@@ -274,6 +310,8 @@ docs/DESIGN.md      设计取舍与踩坑记录（时间基、滤镜、多流、
 | `test_av` | 6 | 双流生成与转码、`--no-audio` 丢轨、`atempo` 改时长、非法音频滤镜 |
 
 合计 **7 个测试程序 / 34 个用例**，`ctest` 全绿；GitHub Actions 上 gcc 与 clang 双矩阵跑同一套。
+ROS 2 层由 `scripts/ros_smoke.sh` 做端到端冒烟（起节点 → 等话题 → 断言收到 `CompressedImage`），
+CI 里单独一个 `ros:jazzy-ros-base` 容器 job 跑它。
 
 ### 7.2 实测数据
 

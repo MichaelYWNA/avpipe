@@ -5,14 +5,46 @@
 
 namespace erde {
 
-Expected<std::unique_ptr<Demuxer>> Demuxer::open(const std::string& path) {
+Expected<std::unique_ptr<Demuxer>> Demuxer::open(const std::string& path,
+                                                 const std::string& format_name,
+                                                 const std::string& options) {
   std::unique_ptr<Demuxer> demux(new Demuxer());
 
+  const AVInputFormat* input_format = nullptr;
+  if (!format_name.empty()) {
+    input_format = av_find_input_format(format_name.c_str());
+    if (input_format == nullptr) {
+      return fail(Code::unsupported, "unknown input format '" + format_name + "'");
+    }
+  }
+
+  AVDictionary* raw_options = nullptr;
+  if (!options.empty()) {
+    if (const int ret = av_dict_parse_string(&raw_options, options.c_str(), "=", ",", 0);
+        ret < 0) {
+      return from_av(ret, "cannot parse input options '" + options + "'");
+    }
+  }
+
   AVFormatContext* raw = nullptr;
-  if (const int ret = avformat_open_input(&raw, path.c_str(), nullptr, nullptr); ret < 0) {
-    return from_av(ret, "cannot open '" + path + "'");
+  const int opened = avformat_open_input(&raw, path.c_str(), input_format, &raw_options);
+  if (opened < 0) {
+    av_dict_free(&raw_options);
+    return from_av(opened, "cannot open '" + path + "'");
   }
   demux->format_.reset(raw);
+
+  // libav returns the options it did *not* consume; a silently ignored option turns into a
+  // silently wrong pipeline (30 fps requested, 15 fps delivered), so treat it as an error.
+  if (raw_options != nullptr) {
+    int leftovers = av_dict_count(raw_options);
+    av_dict_free(&raw_options);
+    if (leftovers > 0) {
+      return fail(Code::invalid_argument, "unused input option(s) in '" + options +
+                                              "' - check the names for this input format");
+    }
+  }
+  av_dict_free(&raw_options);
 
   if (const int ret = avformat_find_stream_info(demux->format_.get(), nullptr); ret < 0) {
     return from_av(ret, "cannot read stream info of '" + path + "'");
@@ -120,6 +152,16 @@ std::string Demuxer::format_name() const {
     return "unknown";
   }
   return format_->iformat->name;
+}
+
+bool Demuxer::is_live() const {
+  if (!format_) {
+    return false;
+  }
+  const bool infinite = format_->duration == AV_NOPTS_VALUE;
+  const bool realtime = (format_->iformat->flags & AVFMT_NOFILE) != 0 ||
+                        (format_->flags & AVFMT_FLAG_NONBLOCK) != 0;
+  return infinite || realtime;
 }
 
 }  // namespace erde

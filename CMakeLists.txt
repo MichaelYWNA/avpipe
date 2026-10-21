@@ -33,7 +33,10 @@ add_library(erde_core STATIC
   src/mux.cpp
   src/pipeline.cpp
 )
-target_include_directories(erde_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(erde_core PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
 target_link_libraries(erde_core PUBLIC PkgConfig::LIBAV)
 target_compile_options(erde_core PRIVATE -Wall -Wextra -Wpedantic)
 
@@ -44,4 +47,35 @@ target_compile_options(erde PRIVATE -Wall -Wextra -Wpedantic)
 enable_testing()
 add_subdirectory(tests)
 
-install(TARGETS erde RUNTIME DESTINATION bin)
+# Install + export, so an ament_cmake package (erde_ros) can `find_package(erde)`.
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS erde_core EXPORT erdeTargets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(TARGETS erde RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+install(EXPORT erdeTargets
+  FILE erdeTargets.cmake
+  NAMESPACE erde::
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/erde
+)
+
+configure_package_config_file(cmake/erde-config.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/erde-config.cmake
+  INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/erde
+)
+write_basic_package_version_file(
+  ${CMAKE_CURRENT_BINARY_DIR}/erde-config-version.cmake
+  VERSION ${PROJECT_VERSION}
+  COMPATIBILITY SameMajorVersion
+)
+install(FILES
+  ${CMAKE_CURRENT_BINARY_DIR}/erde-config.cmake
+  ${CMAKE_CURRENT_BINARY_DIR}/erde-config-version.cmake
+  DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/erde
+)

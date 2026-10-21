@@ -33,6 +33,8 @@ void print_usage(std::ostream& os) {
      << "  --gop <n>          keyframe interval (default 12)\n"
      << "  --fps <n>          frame rate for gen; for transcode it asserts the rate\n"
      << "  --size <WxH>       target size; inserts a scaler\n"
+     << "  --input-format <n> demuxer for devices: v4l2, pulse, alsa (default: probe)\n"
+     << "  --input-options <s> device options, e.g. 'video_size=1280x720,framerate=30'\n"
      << "  --filter <desc>    libavfilter chain for video, e.g. 'fps=15,crop=640:360'\n"
      << "  --audio-filter <d> libavfilter chain for audio, e.g. 'atempo=2.0'\n"
      << "  --audio-codec <n>  audio encoder (default aac)\n"
@@ -68,6 +70,8 @@ struct Options {
   bool verbose{false};
   std::string filter;
   std::string audio_filter;
+  std::string input_format;
+  std::string input_options;
   bool no_audio{false};
   bool with_audio{false};
   std::string audio_codec{"aac"};
@@ -96,7 +100,8 @@ bool needs_value(const std::string& flag) {
          flag == "--gop" || flag == "--fps" || flag == "--size" || flag == "--frames" ||
          flag == "--runs" || flag == "--config" || flag == "--filter" || flag == "--seconds" ||
          flag == "--rate" || flag == "--channels" || flag == "--hw" || flag == "--hw-device" ||
-         flag == "--audio-filter" || flag == "--audio-codec" || flag == "--audio-bitrate";
+         flag == "--audio-filter" || flag == "--audio-codec" || flag == "--audio-bitrate" ||
+         flag == "--input-format" || flag == "--input-options";
 }
 
 erde::Status apply_option(Options& options, erde::EncodeOptions& encode,
@@ -182,6 +187,10 @@ erde::Status apply_option(Options& options, erde::EncodeOptions& encode,
   } else if (flag == "--hw-device") {
     options.hw_device = value;
     encode.hw_device_name = value;
+  } else if (flag == "--input-format") {
+    options.input_format = value;
+  } else if (flag == "--input-options") {
+    options.input_options = value;
   } else if (flag == "--audio-filter") {
     options.audio_filter = value;
   } else if (flag == "--audio-codec") {
@@ -333,7 +342,7 @@ int main(int argc, char** argv) {
     if (positional.size() != 1) {
       return usage_error("probe needs exactly one file");
     }
-    auto report = erde::probe(positional.front());
+    auto report = erde::probe(positional.front(), options.input_format, options.input_options);
     if (!report) {
       return fail(report.error());
     }
@@ -391,6 +400,8 @@ int main(int argc, char** argv) {
     request.sample_rate = options.sample_rate;
     request.channels = options.channels;
     request.filter = options.audio_filter;
+    request.input_format = options.input_format;
+    request.input_options = options.input_options;
     auto stats = erde::transcode_audio(request);
     if (!stats) {
       return fail(stats.error());
@@ -416,6 +427,8 @@ int main(int argc, char** argv) {
     request.height = options.height;
     request.filter = options.filter;
     request.audio_filter = options.audio_filter;
+    request.input_format = options.input_format;
+    request.input_options = options.input_options;
     request.include_audio = !options.no_audio;
     request.force_fps = options.fps_explicit;
 
