@@ -76,6 +76,9 @@ jobs:
     runs-on: ubuntu-24.04
     container:
       image: ros:jazzy-ros-base
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -87,12 +90,14 @@ jobs:
             libavformat-dev libavcodec-dev libavutil-dev \
             libswscale-dev libswresample-dev libavfilter-dev
 
+      # Keep the core build out of ./build: colcon owns that name, and mixing a plain CMake cache
+      # into it makes `colcon build` refuse the directory.
       - name: Build and install the erde core library
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build -j"$(nproc)"
-          cmake --install build --prefix /opt/erde
-          ctest --test-dir build --output-on-failure
+          cmake -S . -B build-core -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-core -j"$(nproc)"
+          cmake --install build-core --prefix /opt/erde
+          ctest --test-dir build-core --output-on-failure
 
       - name: Build the ROS 2 package
         env:
@@ -100,10 +105,14 @@ jobs:
           AMENT_PREFIX_PATH: /opt/erde
         run: |
           source /opt/ros/jazzy/setup.bash
-          colcon build --base-paths erde_ros --event-handlers console_cohesion+
+          colcon build --base-paths erde_ros \
+            --build-base build-ros --install-base install-ros \
+            --event-handlers console_cohesion+
 
       - name: Smoke test the node
         env:
           CMAKE_PREFIX_PATH: /opt/erde
           AMENT_PREFIX_PATH: /opt/erde
+          ERDE_BIN: ${{ github.workspace }}/build-core/erde
+          ERDE_ROS_INSTALL: ${{ github.workspace }}/install-ros
         run: bash scripts/ros_smoke.sh

@@ -13,20 +13,27 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$here"
 
+erde_bin="${ERDE_BIN:-$here/build/erde}"
+ros_install="${ERDE_ROS_INSTALL:-$here/install}"
+
 if [ -z "${ROS_DISTRO:-}" ]; then
   echo "ROS_DISTRO is not set - source /opt/ros/<distro>/setup.bash first" >&2
   exit 2
 fi
-if [ ! -f install/setup.bash ]; then
-  echo "install/setup.bash missing - run: colcon build --base-paths erde_ros" >&2
+if [ ! -x "$erde_bin" ]; then
+  echo "$erde_bin not found - build the core library first" >&2
+  exit 2
+fi
+if [ ! -f "$ros_install/setup.bash" ]; then
+  echo "$ros_install/setup.bash missing - run: colcon build --base-paths erde_ros" >&2
   exit 2
 fi
 
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
-source install/setup.bash
+source "$ros_install/setup.bash"
 
 clip=/tmp/erde-ros-smoke.mp4
-./build/erde gen "$clip" --size 320x240 --frames 300 --fps 30 --crf 23 >/dev/null 2>&1
+"$erde_bin" gen "$clip" --size 320x240 --frames 300 --fps 30 --crf 23 >/dev/null 2>&1
 
 log=/tmp/erde-ros-smoke.log
 : > "$log"
