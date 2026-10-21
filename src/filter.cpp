@@ -59,8 +59,11 @@ Status FilterSource::configure(const AVFrame& first) {
     }
   }
 
-  if (avfilter_graph_create_filter(&buffer_sink_, avfilter_get_by_name("buffersink"), "out",
-                                   nullptr, nullptr, graph_.get()) < 0) {
+  // Audio needs abuffersink, video needs buffersink; using the wrong one fails with a
+  // "media type mismatch between ... output pad 0 (audio) and ... input pad 0 (video)".
+  if (avfilter_graph_create_filter(&buffer_sink_,
+                                   avfilter_get_by_name(video ? "buffersink" : "abuffersink"),
+                                   "out", nullptr, nullptr, graph_.get()) < 0) {
     return fail(Code::ffmpeg, "cannot create buffersink filter");
   }
 

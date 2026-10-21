@@ -174,9 +174,68 @@ out_time_base_ = av_buffersink_get_time_base(buffer_sink_);
 还有一个顺序坑：先校验设备名再解析编码器名。反过来的话 `hw=nosuchdev` 会报
 `encoder 'libx264_nosuchdev' is not available`，把人往错误的编码器问题上引。
 
-## 10. 测试策略
+## 10. 多流混流：两条链、一个 muxer
 
-六个测试程序，都不需要外部素材：
+`Muxer` 改成显式生命周期，因为容器头只能在所有流注册完之后写一次：
+
+```cpp
+open() -> add_stream(info) x N -> start() -> write(packet, stream_index) ... -> close()
+```
+
+`add_stream()` 记住每个流的 **编码器时间基**（`1/fps` 或 `1/sample_rate`），`write()` 时再把它
+缩放成该流在容器里的时间基。MP4 会把流时间基改成 `1/15360`、AVI 改成 `1/600`，所以缩放必须
+按流做，不能全局一个。
+
+两条链各自持有一个 `Demuxer`：一个 demuxer 只服务一路选中的流，而视频 30 fps、音频 43 Hz 的
+节拍不同，共享一个 reader 会互相阻塞。两个 `AVFormatContext` 打开同一文件很便宜。
+
+拉取顺序按时间轴走：
+
+```cpp
+const bool take_video = have_video && (!have_audio || video.last_time <= audio.last_time);
+```
+
+这样送给 muxer 的包本来就有序，`av_interleaved_write_frame()` 只需要处理有限的重排。
+两条链都结束后各自 `flush()`，把编码器里剩余的包倒出来再写 trailer。
+
+第一版在音频缺失时会 **段错误**：`flush_chain()` 直接调 `chain.encoder->flush()`，而纯视频
+文件里音频链的 encoder 是 `nullptr`。现在 `flush_chain()` 和 `write_ready_packets()` 都先判空。
+
+## 11. 一个 `Expected` 与 `Status` 混用的坑（导致了空错误信息）
+
+`Status` 就是 `Error`（`code == ok` 表示成功），而 `Expected<T>` 用同一个 `Error` 表示失败。
+于是这个写法是错的：
+
+```cpp
+if (auto drained = drain_locked(...); drained) {   // 有错？
+  ...                                               // 走这里
+} else {
+  return drained;      // 把 "成功(ok)" 当成 Expected<T> 的错误返回
+}
+```
+
+返回的 `Expected<T>` 没有值，`error().code` 却是 0，调用方于是报告一个 **消息为空的失败**：
+
+```
+avpipe:  [code=0]
+```
+
+修法是不要在 `Expected<T>` 的返回路径上返回 `Status`，而是在 `Status` 上有错时才提前返回：
+
+```cpp
+if (auto drained = drain_locked(...); drained) {
+  return drained;                 // 真错误
+}
+if (!ready_.empty()) { ... }      // 正常路径
+```
+
+同一类错误在 `Encoder::send_frame()` 的 `EAGAIN` 分支里也有一份（`if (drained) continue; else
+return drained;` —— 逻辑正好反了），一并改掉。这个 bug 只在"音频链路第一次 pull 到空"时才
+触发，所以是加了音频之后才暴露出来的。
+
+## 12. 测试策略
+
+七个测试程序，都不需要外部素材：
 
 | 测试 | 覆盖 |
 |---|---|
@@ -186,6 +245,7 @@ out_time_base_ = av_buffersink_get_time_base(buffer_sink_);
 | `test_filter` | `fps=15` 帧数减半、`crop` 改尺寸、非法滤镜描述被拒绝 |
 | `test_audio` | 正弦音生成、48k 立体声 → 44.1k 单声道、纯视频文件被拒绝 |
 | `test_encode` | 软件编码器、音频编码器参数、未知编码器、硬件编码的成功/失败两分支 |
+| `test_av` | 双流生成/转码、`--no-audio` 丢轨、`atempo` 改变时长、非法音频滤镜 |
 
 端到端测试用 `mpeg4` 而不是 `libx264`：`mpeg4` 是 libavcodec 内置的，装不装 x264 都能跑，
 测试不依赖宿主环境；音频用例同理只用 `aac`（libavcodec 内置）。

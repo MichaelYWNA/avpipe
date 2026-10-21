@@ -269,11 +269,11 @@ Status Encoder::send_frame(const AVFrame* frame) {
       return drain_locked("avcodec_receive_packet");
     }
     if (ret == AVERROR(EAGAIN)) {
+      // Encoder is full: take what it has, then offer the frame again.
       if (auto drained = drain_locked("avcodec_receive_packet"); drained) {
-        continue;
-      } else {
         return drained;
       }
+      continue;
     }
     return from_av(ret, "avcodec_send_frame");
   }
@@ -349,17 +349,19 @@ Expected<Packet> Encoder::pull() {
   if (finished_) {
     return fail(Code::end_of_stream, "encoder finished");
   }
+  // `drain_locked` reports success as Code::ok, which must NOT be turned into an Expected
+  // holding an error: an Error with code ok has no value, so the caller would see "no packet"
+  // with error() == ok and report an empty failure message.
   if (auto drained = drain_locked("avcodec_receive_packet"); drained) {
-    if (!ready_.empty()) {
-      Packet packet = std::move(ready_.front());
-      ready_.pop_front();
-      return packet;
-    }
-    if (finished_) {
-      return fail(Code::end_of_stream, "encoder finished");
-    }
-  } else {
     return drained;
+  }
+  if (!ready_.empty()) {
+    Packet packet = std::move(ready_.front());
+    ready_.pop_front();
+    return packet;
+  }
+  if (finished_) {
+    return fail(Code::end_of_stream, "encoder finished");
   }
   return fail(Code::need_more, "encoder has no packet yet");
 }

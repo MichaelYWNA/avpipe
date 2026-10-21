@@ -27,3 +27,8 @@ add_executable(test_encode test_encode.cpp)
 target_link_libraries(test_encode PRIVATE avpipe_core)
 target_include_directories(test_encode PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 add_test(NAME encode COMMAND test_encode)
+
+add_executable(test_av test_av.cpp)
+target_link_libraries(test_av PRIVATE avpipe_core)
+target_include_directories(test_av PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+add_test(NAME av COMMAND test_av)

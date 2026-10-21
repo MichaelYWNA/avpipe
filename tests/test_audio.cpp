@@ -33,7 +33,7 @@ TEST_CASE(generates_an_audio_file) {
   avpipe::GenerateRequest request;
   request.output = temp_path("tone.m4a").string();
   request.encode = audio_options();
-  request.audio = true;
+  request.audio_only = true;
   request.seconds = 1.0;
   request.sample_rate = 48'000;
   request.channels = 2;
@@ -61,7 +61,7 @@ TEST_CASE(resamples_and_reencodes_audio) {
   avpipe::GenerateRequest gen;
   gen.output = source;
   gen.encode = audio_options();
-  gen.audio = true;
+  gen.audio_only = true;
   gen.seconds = 0.5;
   gen.sample_rate = 48'000;
   gen.channels = 2;

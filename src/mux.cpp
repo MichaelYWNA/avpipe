@@ -3,14 +3,9 @@
 
 namespace avpipe {
 
-Expected<std::unique_ptr<Muxer>> Muxer::open(const std::string& path, const StreamInfo& encoded) {
-  if (!encoded.params) {
-    return fail(Code::invalid_argument, "Muxer::open: no encoder parameters");
-  }
-
+Expected<std::unique_ptr<Muxer>> Muxer::open(const std::string& path) {
   std::unique_ptr<Muxer> muxer(new Muxer());
   muxer->path_ = path;
-  muxer->encoder_time_base_ = encoded.time_base;
 
   AVFormatContext* raw = nullptr;
   if (const int ret = avformat_alloc_output_context2(&raw, nullptr, nullptr, path.c_str());
@@ -19,8 +14,18 @@ Expected<std::unique_ptr<Muxer>> Muxer::open(const std::string& path, const Stre
                    "cannot create output context for '" + path + "'");
   }
   muxer->format_.reset(raw);
+  return muxer;
+}
 
-  AVStream* stream = avformat_new_stream(muxer->format_.get(), nullptr);
+Expected<int> Muxer::add_stream(const StreamInfo& encoded) {
+  if (started_) {
+    return fail(Code::invalid_argument, "Muxer::add_stream: header already written");
+  }
+  if (!encoded.params) {
+    return fail(Code::invalid_argument, "Muxer::add_stream: no encoder parameters");
+  }
+
+  AVStream* stream = avformat_new_stream(format_.get(), nullptr);
   if (stream == nullptr) {
     return from_av(AVERROR(ENOMEM), "cannot add output stream");
   }
@@ -29,22 +34,35 @@ Expected<std::unique_ptr<Muxer>> Muxer::open(const std::string& path, const Stre
   }
   stream->codecpar->codec_tag = 0;
   stream->time_base = encoded.time_base;
-  if (encoded.params->framerate.num > 0 && encoded.params->framerate.den > 0) {
+  // avg_frame_rate only makes sense for video; setting it on audio makes some muxers complain.
+  if (encoded.type == AVMEDIA_TYPE_VIDEO && encoded.params->framerate.num > 0 &&
+      encoded.params->framerate.den > 0) {
     stream->avg_frame_rate = encoded.params->framerate;
   }
-  muxer->stream_ = stream;
 
-  if ((muxer->format_->oformat->flags & AVFMT_NOFILE) == 0) {
-    if (const int ret = avio_open(&muxer->format_->pb, path.c_str(), AVIO_FLAG_WRITE); ret < 0) {
-      return from_av(ret, "cannot open '" + path + "' for writing");
+  const int index = static_cast<int>(streams_.size());
+  streams_.push_back(OutputStream{stream, encoded.time_base});
+  return index;
+}
+
+Status Muxer::start() {
+  if (started_) {
+    return ok();
+  }
+  if (streams_.empty()) {
+    return fail(Code::invalid_argument, "Muxer::start: no streams were added");
+  }
+
+  if ((format_->oformat->flags & AVFMT_NOFILE) == 0) {
+    if (const int ret = avio_open(&format_->pb, path_.c_str(), AVIO_FLAG_WRITE); ret < 0) {
+      return from_av(ret, "cannot open '" + path_ + "' for writing");
     }
   }
-
-  if (const int ret = avformat_write_header(muxer->format_.get(), nullptr); ret < 0) {
+  if (const int ret = avformat_write_header(format_.get(), nullptr); ret < 0) {
     return from_av(ret, "avformat_write_header");
   }
-  muxer->header_written_ = true;
-  return muxer;
+  started_ = true;
+  return ok();
 }
 
 Muxer::~Muxer() {
@@ -54,12 +72,21 @@ Muxer::~Muxer() {
   }
 }
 
-Status Muxer::write(const Packet& packet) {
+Status Muxer::write(const Packet& packet) { return write(packet, 0); }
+
+Status Muxer::write(const Packet& packet, int stream_index) {
   if (closed_) {
     return fail(Code::invalid_argument, "Muxer::write: muxer already closed");
   }
+  if (!started_) {
+    return fail(Code::invalid_argument, "Muxer::write: start() was not called");
+  }
   if (packet.empty()) {
     return fail(Code::invalid_argument, "Muxer::write: empty packet");
+  }
+  if (stream_index < 0 || stream_index >= stream_count()) {
+    return fail(Code::invalid_argument,
+                "Muxer::write: stream " + std::to_string(stream_index) + " was not registered");
   }
 
   PacketPtr copy(av_packet_clone(packet.get()));
@@ -67,10 +94,11 @@ Status Muxer::write(const Packet& packet) {
     return from_av(AVERROR(ENOMEM), "av_packet_clone");
   }
 
+  OutputStream& out = streams_[static_cast<std::size_t>(stream_index)];
   // The encoder counts in its own time base; the container decides its own. Rescale rather than
   // letting timestamps drift by the ratio of the two.
-  av_packet_rescale_ts(copy.get(), encoder_time_base_, stream_->time_base);
-  copy->stream_index = stream_->index;
+  av_packet_rescale_ts(copy.get(), out.encoder_time_base, out.stream->time_base);
+  copy->stream_index = out.stream->index;
 
   if (const int ret = av_interleaved_write_frame(format_.get(), copy.get()); ret < 0) {
     return from_av(ret, "av_interleaved_write_frame");
@@ -87,7 +115,7 @@ Status Muxer::close() {
   if (!format_) {
     return ok();
   }
-  if (header_written_) {
+  if (started_) {
     if (const int ret = av_write_trailer(format_.get()); ret < 0) {
       return from_av(ret, "av_write_trailer");
     }

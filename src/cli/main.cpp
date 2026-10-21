@@ -13,7 +13,7 @@
 
 namespace {
 
-constexpr const char* kVersion = "0.2.0";
+constexpr const char* kVersion = "0.3.0";
 
 void print_usage(std::ostream& os) {
   os << "avpipe " << kVersion << " - pull-based audio/video pipeline on libav*\n"
@@ -33,7 +33,12 @@ void print_usage(std::ostream& os) {
      << "  --gop <n>          keyframe interval (default 12)\n"
      << "  --fps <n>          frame rate for gen; for transcode it asserts the rate\n"
      << "  --size <WxH>       target size; inserts a scaler\n"
-     << "  --filter <desc>    libavfilter chain, e.g. 'fps=15,crop=640:360'\n"
+     << "  --filter <desc>    libavfilter chain for video, e.g. 'fps=15,crop=640:360'\n"
+     << "  --audio-filter <d> libavfilter chain for audio, e.g. 'atempo=2.0'\n"
+     << "  --audio-codec <n>  audio encoder (default aac)\n"
+     << "  --audio-bitrate <r> audio bit rate (default 128k)\n"
+     << "  --no-audio         transcode: drop the audio track\n"
+     << "  --with-audio       gen: add a tone track next to the video\n"
      << "  --frames <n>       frame count for gen (default 60)\n"
      << "  --audio            gen: produce a sine tone instead of a video pattern\n"
      << "  --seconds <s>      gen --audio: duration (default 2.0)\n"
@@ -62,6 +67,11 @@ struct Options {
   bool quiet{false};
   bool verbose{false};
   std::string filter;
+  std::string audio_filter;
+  bool no_audio{false};
+  bool with_audio{false};
+  std::string audio_codec{"aac"};
+  int64_t audio_bit_rate{128'000};
   bool audio{false};
   double seconds{2.0};
   int sample_rate{0};
@@ -85,7 +95,8 @@ bool needs_value(const std::string& flag) {
   return flag == "--codec" || flag == "--bitrate" || flag == "--preset" || flag == "--crf" ||
          flag == "--gop" || flag == "--fps" || flag == "--size" || flag == "--frames" ||
          flag == "--runs" || flag == "--config" || flag == "--filter" || flag == "--seconds" ||
-         flag == "--rate" || flag == "--channels" || flag == "--hw" || flag == "--hw-device";
+         flag == "--rate" || flag == "--channels" || flag == "--hw" || flag == "--hw-device" ||
+         flag == "--audio-filter" || flag == "--audio-codec" || flag == "--audio-bitrate";
 }
 
 avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
@@ -171,6 +182,16 @@ avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
   } else if (flag == "--hw-device") {
     options.hw_device = value;
     encode.hw_device_name = value;
+  } else if (flag == "--audio-filter") {
+    options.audio_filter = value;
+  } else if (flag == "--audio-codec") {
+    options.audio_codec = value;
+  } else if (flag == "--audio-bitrate") {
+    auto parsed = avpipe::parse_bit_rate(value);
+    if (!parsed) {
+      return parsed.error();
+    }
+    options.audio_bit_rate = parsed.value();
   } else {
     return fail(Code::invalid_argument, "unknown option " + flag);
   }
@@ -214,6 +235,14 @@ int main(int argc, char** argv) {
     }
     if (arg == "--audio") {
       options.audio = true;
+      continue;
+    }
+    if (arg == "--with-audio") {
+      options.with_audio = true;
+      continue;
+    }
+    if (arg == "--no-audio") {
+      options.no_audio = true;
       continue;
     }
     if (!needs_value(arg)) {
@@ -325,11 +354,15 @@ int main(int argc, char** argv) {
       encode.codec = "aac";
     }
     request.encode = encode;
+    request.audio_encode = avpipe::default_audio_encode();
+    request.audio_encode.codec = options.audio_codec;
+    request.audio_encode.bit_rate = options.audio_bit_rate;
     request.width = options.width > 0 ? options.width : 640;
     request.height = options.height > 0 ? options.height : 480;
     request.fps = options.fps;
     request.frames = options.frames;
-    request.audio = options.audio;
+    request.audio_only = options.audio;
+    request.with_audio = options.with_audio;
     request.seconds = options.seconds;
     request.sample_rate = options.sample_rate > 0 ? options.sample_rate : 48'000;
     request.channels = options.channels > 0 ? options.channels : 2;
@@ -357,6 +390,7 @@ int main(int argc, char** argv) {
     request.encode = encode;
     request.sample_rate = options.sample_rate;
     request.channels = options.channels;
+    request.filter = options.audio_filter;
     auto stats = avpipe::transcode_audio(request);
     if (!stats) {
       return fail(stats.error());
@@ -373,9 +407,16 @@ int main(int argc, char** argv) {
     request.input = positional[0];
     request.output = positional[1];
     request.encode = encode;
+    request.audio_encode = avpipe::default_audio_encode();
+    request.audio_encode.codec = options.audio_codec;
+    request.audio_encode.bit_rate = options.audio_bit_rate;
+    request.audio_encode.sample_rate = options.sample_rate;
+    request.audio_encode.channels = options.channels;
     request.width = options.width;
     request.height = options.height;
     request.filter = options.filter;
+    request.audio_filter = options.audio_filter;
+    request.include_audio = !options.no_audio;
     request.force_fps = options.fps_explicit;
 
     if (command == "transcode") {

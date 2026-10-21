@@ -31,6 +31,16 @@ struct EncodeOptions {
   std::string hw_device_name;  ///< e.g. "/dev/dri/renderD128"; empty = first available
 };
 
+/// Audio defaults that are actually valid for an audio encoder (EncodeOptions defaults to a video
+/// codec, which would fail with "encoder libx264 is not an audio encoder").
+inline EncodeOptions default_audio_encode() {
+  EncodeOptions options;
+  options.codec = "aac";
+  options.bit_rate = 128'000;
+  options.preset.clear();
+  return options;
+}
+
 /// Frame sink + packet source around an AVCodecContext, for video or audio.
 ///
 /// `push()` never reports "full": when libav answers EAGAIN it drains the encoder into an

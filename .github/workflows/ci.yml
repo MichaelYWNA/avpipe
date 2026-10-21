@@ -50,6 +50,21 @@ jobs:
           ./build/avpipe gen /tmp/ci-tone.m4a --audio --seconds 1 --rate 48000 --channels 2
           ./build/avpipe transcode-audio /tmp/ci-tone.m4a /tmp/ci-tone-out.m4a --rate 44100 --channels 1
           ./build/avpipe probe /tmp/ci-tone-out.m4a
+          # audio filter: atempo=2.0 must halve the duration
+          ./build/avpipe transcode-audio /tmp/ci-tone.m4a /tmp/ci-tone-fast.m4a --audio-filter 'atempo=2.0'
+          ./build/avpipe probe /tmp/ci-tone-fast.m4a
+          # multi-stream: video + audio in one file, then transcode both
+          ./build/avpipe gen /tmp/ci-av.mp4 --size 160x120 --frames 15 --fps 15 --with-audio --seconds 1
+          ./build/avpipe probe /tmp/ci-av.mp4 | tee /tmp/ci-av.txt
+          grep -q "video(" /tmp/ci-av.txt
+          grep -q "audio(" /tmp/ci-av.txt
+          ./build/avpipe transcode /tmp/ci-av.mp4 /tmp/ci-av-out.mp4 --codec mpeg4 | tee /tmp/ci-av-out.txt
+          ./build/avpipe probe /tmp/ci-av-out.mp4 | tee /tmp/ci-av-out-probe.txt
+          grep -q "video(" /tmp/ci-av-out-probe.txt
+          grep -q "audio(" /tmp/ci-av-out-probe.txt
+          ./build/avpipe transcode /tmp/ci-av.mp4 /tmp/ci-no-audio.mp4 --codec mpeg4 --no-audio
+          ./build/avpipe probe /tmp/ci-no-audio.mp4 | tee /tmp/ci-no-audio.txt
+          if grep -q "audio(" /tmp/ci-no-audio.txt; then echo "--no-audio left an audio stream"; exit 1; fi
           # hardware path must fail cleanly on a runner without /dev/dri
           if ./build/avpipe transcode /tmp/ci.mp4 /tmp/hw.mp4 --hw vaapi; then
             echo "vaapi unexpectedly succeeded"; exit 1
