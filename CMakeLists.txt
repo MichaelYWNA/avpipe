@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(avpipe VERSION 0.1.0 LANGUAGES CXX)
+project(avpipe VERSION 0.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,6 +17,8 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
   libavcodec
   libavutil
   libswscale
+  libswresample
+  libavfilter
 )
 
 add_library(avpipe_core STATIC
@@ -26,6 +28,8 @@ add_library(avpipe_core STATIC
   src/decode.cpp
   src/encode.cpp
   src/scale.cpp
+  src/filter.cpp
+  src/audio.cpp
   src/mux.cpp
   src/pipeline.cpp
 )

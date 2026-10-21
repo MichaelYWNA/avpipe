@@ -19,6 +19,11 @@ using CodecContextPtr =
 using FormatContextPtr =
     Ptr<AVFormatContext, free_via_pointer_to_pointer<AVFormatContext, avformat_close_input>>;
 using SwsContextPtr = Ptr<SwsContext, free_via_pointer<SwsContext, sws_freeContext>>;
+using SwrContextPtr = Ptr<SwrContext, free_via_pointer_to_pointer<SwrContext, swr_free>>;
+using AudioFifoPtr = Ptr<AVAudioFifo, free_via_pointer<AVAudioFifo, av_audio_fifo_free>>;
+using FilterGraphPtr =
+    Ptr<AVFilterGraph, free_via_pointer_to_pointer<AVFilterGraph, avfilter_graph_free>>;
+using BufferRefPtr = Ptr<AVBufferRef, free_via_pointer_to_pointer<AVBufferRef, av_buffer_unref>>;
 
 /// Owned AVFrame. Construction goes through `Frame::create()` so a null AVFrame can never be
 /// wrapped by accident; an empty()` Frame is one that holds no AVFrame at all.

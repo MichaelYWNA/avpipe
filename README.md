@@ -1,10 +1,10 @@
 # avpipe
 
-基于 libav\* 的**拉取式**音视频转码管线：解复用 → 解码 → （可选）缩放 → 编码 → 复用，全部用
-C++17 写成，不依赖 ROS、不依赖任何第三方框架，只用 pkg-config 找到 `libavformat` /
-`libavcodec` / `libavutil` / `libswscale`。
+基于 libav\* 的**拉取式**音视频转码管线：解复用 → 解码 → （可选）libavfilter → （可选）缩放 →
+编码 → 复用，全部 C++17，不依赖 ROS、不依赖任何第三方框架，只用 pkg-config 找到
+`libavformat` / `libavcodec` / `libavutil` / `libswscale` / `libswresample` / `libavfilter`。
 
-自带合成片源，所以不需要任何素材文件就能把整条链路跑通并测出数字。
+自带合成片源与合成音源，所以不需要任何素材文件就能把整条链路跑通并测出数字。
 
 ---
 
@@ -13,48 +13,47 @@ C++17 写成，不依赖 ROS、不依赖任何第三方框架，只用 pkg-confi
 | 项目 | 结果 |
 |---|---|
 | 构建 | CMake + GCC 13，`-Wall -Wextra -Wpedantic` 零警告 |
-| 测试 | 3 个测试程序、18 个用例，`ctest` 全绿（0.1 s） |
-| 正确性 | 120 帧进 → 120 帧出（`packets read=120 frames decoded=120 frames encoded=120 packets written=120`） |
-| 时间轴 | 4.000 s 源 → 4.000 s 出，容器时间基转换不漂移 |
+| 测试 | 6 个测试程序、28 个用例，`ctest` 全绿 |
+| 视频守恒 | 120 帧进 → 120 帧出（`--filter fps=15` 时 120 → 60，时长仍是 4 s） |
+| 音频链路 | 10 s AAC 48 kHz 立体声 → 44.1 kHz 单声道，**约 48 ms**（≈ 208× 实时） |
+| 时间轴 | 4.000 s 源 → 4.000 s 出，时间基转换不漂移 |
+| CI | GitHub Actions，gcc + clang 双矩阵，含 CLI 冒烟 |
 
-实测吞吐（Ubuntu 24.04 / WSL2 / 32 vCPU / FFmpeg 6.1 / Release，`avpipe bench` 取多次平均）：
+实测吞吐（Ubuntu 24.04 / WSL2 / 32 vCPU / FFmpeg 6.1 / Release，`avpipe bench` 多次平均）：
 
 | 链路 | 吞吐 |
 |---|---|
-| 1280×720 H.264 → 640×480 mpeg4 | **1210 fps** |
-| 1280×720 H.264 → 1280×720 libx264 `veryfast` `crf 23` | **680 fps** |
-| 1280×720 H.264 → 1280×720 libx265 `ultrafast` `crf 28` | **219 fps** |
-
-复现：
-
-```bash
-avpipe gen /tmp/720p.mp4 --size 1280x720 --frames 120 --crf 23
-avpipe bench /tmp/720p.mp4 /tmp/out.avi --size 640x480 --codec mpeg4 --runs 5
-```
+| 1280×720 → 640×480 mpeg4 | **1210 fps** |
+| 1280×720 → 1280×720 libx264 `veryfast` | **786 fps** |
+| 1280×720 → `fps=30,scale=640:360` → libx264 `veryfast` | **858 fps** |
+| 1280×720 → 1280×720 libx265 `ultrafast` | **219 fps** |
+| 10 s AAC 48k 立体声 → 44.1k mono | **≈ 48 ms**（208× 实时） |
 
 ---
 
-## 为什么是"拉取式"
+## 能力
 
-常见写法是三个循环互相推：解码器把帧推进队列，编码器从队列取。代价是每个交接点都要自己
-管水位、自己判断"队列满了该丢谁"，而"丢最新一帧"这种 bug 恰恰藏在里面。
+| 领域 | 已实现 | 说明 |
+|---|---|---|
+| 视频 | 解复用 / 解码 / 缩放 / 编码 / 复用 | 软件编码：libx264、libx265、mpeg4、mjpeg… |
+| 滤镜 | `--filter "fps=15,crop=640:360"` 任意 libavfilter 链 | 帧率转换只有在这里才成立 |
+| 音频 | 重采样（swresample）+ 定长切帧（`AVAudioFifo`）+ 编码 | `transcode-audio`，AAC / mp3 / opus… |
+| 硬件编码 | `--hw vaapi` / `--hw cuda` + 系统内存到设备帧的上传 | 本机无 `/dev/dri`，只验证了失败路径（见限制） |
 
-这里反过来：**下游向上游要数据**。
+### 为什么需要 filter 阶段
+
+`--size` 只能改分辨率，不能改帧率：丢帧/补帧是 filter 的事。`fps=15` 插进去之后，
+120 帧 30 fps 的 4 秒片子变成 60 帧 15 fps，**时长不变**——
 
 ```
-Muxer.write(packet)  <-  Encoder.pull()  <-  Scaler.pull()  <-  Decoder.pull()  <-  Demuxer.pull()
+$ avpipe transcode 720p.mp4 out.mp4 --filter 'fps=15' --fps 15
+packets read=120 frames decoded=120 frames encoded=60 packets written=60
+$ avpipe probe out.mp4
+format=mov,mp4,... duration=4s packets=60
+  video(index=0, codec=h264, 1280x720, fps=15, tb=1/15360) packets=60
 ```
 
-每个 stage 只暴露 `pull()`，返回三态之一：有数据 / `need_more`（暂时没有，但没结束）/
-`end_of_stream`（永远没有了）。好处：
-
-- **不会丢帧**：编码器 `EAGAIN` 时，`Encoder::push()` 自己把内部包排空再重试，调用方不需要
-  在 send/receive 之间手工穿插，也就没有"只保留最新一个"的决策点。
-- **N:M 关系有地方放**：一个 packet 可能出 0 个或多个 frame（B 帧重排、编解码器 delay），
-  这些状态（pending packet、draining 标志、EOF 闩锁）都在 `Decoder` 内部，不污染管线代码。
-- **可组合**：`ScalingSource` 只是又一个 `FrameSource`，插在解码器和编码器中间，别处不用改。
-
-细节和取舍写在 [docs/DESIGN.md](docs/DESIGN.md)。
+不写 `--filter` 而直接 `--fps 24` 会明确报错，而不是产出一个时间轴撒谎的文件。
 
 ---
 
@@ -64,10 +63,8 @@ Muxer.write(packet)  <-  Encoder.pull()  <-  Scaler.pull()  <-  Decoder.pull()  
 
 ```bash
 sudo apt install -y build-essential cmake pkg-config \
-  libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+  libavformat-dev libavcodec-dev libavutil-dev libswscale-dev libswresample-dev libavfilter-dev
 ```
-
-构建与测试：
 
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -75,82 +72,88 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-跑一条完整链路（不需要任何素材）：
+视频链路（不需要素材）：
 
 ```bash
-# 1) 造一段 4 秒 720p 测试片
 ./build/avpipe gen /tmp/src.mp4 --size 1280x720 --fps 30 --frames 120 --crf 23
-
-# 2) 看看它到底是什么
 ./build/avpipe probe /tmp/src.mp4
-# format=mov,mp4,m4a,3gp,3g2,mj2 duration=4s packets=120
-#   video(index=0, codec=h264, 1280x720, fps=30, tb=1/15360) packets=120
-
-# 3) 转成 480p mpeg4
-./build/avpipe transcode /tmp/src.mp4 /tmp/out.avi --size 640x480 --codec mpeg4 --bitrate 1200k
-# packets read=120 frames decoded=120 frames scaled=120 frames encoded=120 packets written=120 wall=103.8 ms
-
-# 4) 测吞吐
+./build/avpipe transcode /tmp/src.mp4 /tmp/out.avi --size 640x480 --codec mpeg4
 ./build/avpipe bench /tmp/src.mp4 /tmp/out.avi --size 640x480 --codec mpeg4 --runs 5
-# runs=5 frames_per_run=120 total_ms=495.698 fps=1210.41
+```
+
+音频链路（同样不需要素材）：
+
+```bash
+./build/avpipe gen /tmp/tone.m4a --audio --seconds 10 --rate 48000 --channels 2
+./build/avpipe transcode-audio /tmp/tone.m4a /tmp/tone-out.m4a --rate 44100 --channels 1 --bitrate 64k
+./build/avpipe probe /tmp/tone-out.m4a
+#   audio(index=0, codec=aac, 44100 Hz, tb=1/44100) packets=45
+```
+
+滤镜与硬件：
+
+```bash
+./build/avpipe transcode in.mp4 out.mp4 --filter 'fps=15,crop=640:360' --fps 15
+./build/avpipe transcode in.mp4 out.mp4 --hw vaapi --hw-device /dev/dri/renderD128
 ```
 
 ## 命令
 
 | 命令 | 作用 |
 |---|---|
-| `avpipe probe <file>` | 打印容器、每路流的编码/分辨率/帧率/时间基、包数、文件大小 |
-| `avpipe gen <out>` | 生成合成测试片（YUV420P 梯度 + 移动方块），当作可复现的测试素材 |
-| `avpipe transcode <in> <out>` | 完整链路，`--size` 会插入缩放 stage |
-| `avpipe bench <in> <out>` | 把转码重复 N 次并打印 fps |
+| `avpipe probe <file>` | 容器、每路流的编码/分辨率/帧率/采样率/时间基、包数、大小 |
+| `avpipe gen <out>` | 合成测试片；`--audio` 生成正弦音 |
+| `avpipe transcode <in> <out>` | 视频链路；`--size` 插缩放，`--filter` 插滤镜 |
+| `avpipe transcode-audio <in> <out>` | 音频链路；`--rate` / `--channels` 重采样 |
+| `avpipe bench <in> <out>` | 重复转码并打印 fps |
 
 通用选项：`--codec` / `--bitrate` / `--preset` / `--crf` / `--gop` / `--fps` / `--size` /
-`--frames` / `--runs` / `--config` / `--quiet` / `--verbose`。`avpipe --help` 有完整说明。
+`--filter` / `--frames` / `--audio` / `--seconds` / `--rate` / `--channels` / `--hw` /
+`--hw-device` / `--config` / `--quiet` / `--verbose`。
 
 ## 配置
 
-除了命令行，也可以用 INI 文件给默认值（`--config pipeline.ini`）：
-
 ```ini
 [video]
-size = 640x480          # 转码时插入缩放到 640x480
-fps  = 30               # gen 用；transcode 时若与源不同会直接报错（见"已知限制"）
+size   = 640x480
+fps    = 30          # gen 用；transcode 时与源不符会被拒绝，除非 filter 里有 fps=
+filter = fps=15      # 任意 libavfilter 链
+
+[audio]
+rate     = 44100
+channels = 1
 
 [encode]
-codec   = mpeg4         # libx264 / libx265 / mpeg4 / mjpeg ...
-bitrate = 1200k         # 1200k、2M、1200000 都行
-preset  = veryfast      # 交给编码器本身，x264/x265 认识
-crf     = 23            # 给了 crf 就不看 bitrate
+codec   = mpeg4      # 或 libx264 / libx265 / aac / libmp3lame
+bitrate = 1200k
+preset  = veryfast
+crf     = 23
 gop     = 12
 ```
 
-解析器是手写的（`src/config.cpp`，约 150 行），带行号报错：
-
-```
-avpipe: /path/pipeline.ini: line 4: expected 'key = value'
-```
+解析器手写在 `src/config.cpp`（约 150 行），带行号报错。
 
 ## 目录
 
 ```
 include/avpipe/    公开头文件：error/expected、RAII Ptr、Frame/Packet、stage 接口、各 stage
 src/               实现；cli/main.cpp 是命令行入口
-tests/             自带的极简测试框架 + 3 个测试程序
-docs/DESIGN.md     设计取舍：拉取模型、时间基、错误处理、为什么不用异常
+tests/             极简测试框架 + 6 个测试程序（config/media/pipeline/filter/audio/encode）
+docs/DESIGN.md     设计取舍：拉取模型、时间基、滤镜、音频、硬件上传、测试策略
 ```
 
 ## 已知限制
 
-写清楚比藏着好，这些是真没做：
-
-1. **只处理视频**。音频链路的 `AudioConverter`/`AudioFifo` 没实现，`transcode` 遇到纯音频输入
-   会报 `no video stream`。
-2. **不做帧率转换**。没有 filter 图，30 fps 转 24 fps 需要丢/补帧，所以 `--fps` 与源不一致时
-   直接报错而不是产出时间轴撒谎的文件。
-3. **单流、单线程**。多路流、线程池、零拷贝跨进程都不在范围内。
-4. **29.97 这类非整数帧率**：编码器时间基取 `1/fps`（`fps` 四舍五入），长时间转码会有毫秒级
-   漂移；要精确得用 `1001/30000` 之类的有理时间基，属于下一步。
-5. **不支持硬件编码**。`--codec h264_vaapi` 这类名字能传，但设备初始化没做，会失败。
+1. **音视频不混流**：`transcode` 只处理视频流，`transcode-audio` 只处理音频流；一个输出文件里
+   同时有音视频需要多流 muxer，尚未实现。
+2. **音频末尾会补齐**：切片器把最后一帧用静音补到编码器帧长（AAC 1024 样本），所以 1.000 s
+   的音源转出来是 1.002 s。要精确就得允许编码器接受短帧或做 gapless 元数据。
+3. **硬件编码未在真机验证**：本机 WSL 没有 `/dev/dri`，只验证了"设备缺失时报错清晰、不崩溃"。
+   VAAPI 的设备/帧池初始化与 `av_hwframe_transfer_data` 上传路径是按 FFmpeg 6.1 文档写的，
+   有 GPU 的机器上需要再跑一次。
+4. **29.97 这类非整数帧率**：编码器时间基取 `1/fps`（四舍五入），长时间转码会有毫秒级漂移。
+5. **单流、单线程**：多路流、线程池、零拷贝跨进程不在范围内。
+6. **音频没有滤镜链**：`--filter` 目前只接到视频链路。
 
 ## 许可证
 

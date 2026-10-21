@@ -31,10 +31,20 @@ struct TranscodeRequest {
   EncodeOptions encode;
   int width = 0;   ///< 0 keeps the source size
   int height = 0;  ///< 0 keeps the source size
-  /// True when the caller set the frame rate explicitly. Without a filter stage this pipeline
-  /// cannot convert a 30 fps source to 24 fps, so a mismatch is reported instead of silently
+  /// libavfilter description inserted after the decoder, e.g. "fps=15,crop=640:360".
+  std::string filter;
+  /// True when the caller set the frame rate explicitly. Without a filter that changes the frame
+  /// rate this pipeline cannot convert 30 fps to 24 fps, so a mismatch is reported instead of
   /// producing a stream whose metadata lies about its cadence.
   bool force_fps = false;
+};
+
+struct AudioTranscodeRequest {
+  std::string input;
+  std::string output;
+  EncodeOptions encode;
+  int sample_rate = 0;  ///< 0 keeps the source rate
+  int channels = 0;     ///< 0 keeps the source layout
 };
 
 struct GenerateRequest {
@@ -44,6 +54,11 @@ struct GenerateRequest {
   int height = 480;
   int fps = 30;
   int frames = 60;
+  /// When true a sine tone is generated instead of a video pattern.
+  bool audio = false;
+  double seconds = 2.0;
+  int sample_rate = 48'000;
+  int channels = 2;
 };
 
 struct ProbeReport {
@@ -61,10 +76,14 @@ struct BenchReport {
   double frames_per_second = 0.0;
 };
 
-/// demux -> decode -> (optional scale) -> encode -> mux.
+/// demux -> decode -> (filter) -> (scale) -> encode -> mux.
 Expected<PipelineStats> transcode(const TranscodeRequest& request);
 
-/// Writes a synthetic clip so the tool can be exercised (and tested) without any input file.
+/// demux -> decode -> resample -> slice -> encode -> mux, for audio-only streams.
+Expected<PipelineStats> transcode_audio(const AudioTranscodeRequest& request);
+
+/// Writes a synthetic clip (video pattern or sine tone) so the tool can be exercised and tested
+/// without any input file.
 Expected<PipelineStats> generate(const GenerateRequest& request);
 
 /// Reads a container and reports its streams and packet counts.

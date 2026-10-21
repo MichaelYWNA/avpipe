@@ -7,8 +7,10 @@
 #include <filesystem>
 #include <sstream>
 
+#include <avpipe/audio.hpp>
 #include <avpipe/decode.hpp>
 #include <avpipe/demux.hpp>
+#include <avpipe/filter.hpp>
 #include <avpipe/mux.hpp>
 #include <avpipe/scale.hpp>
 #include <avpipe/stage.hpp>
@@ -47,6 +49,32 @@ Expected<StreamInfo> resized_video_info(const StreamInfo& base, int width, int h
   return out;
 }
 
+/// Copies audio parameters with optional rate/channel overrides.
+Expected<StreamInfo> audio_info(const StreamInfo& base, int sample_rate, int channels) {
+  if (!base.params) {
+    return fail(Code::invalid_argument, "audio_info: source stream has no parameters");
+  }
+  StreamInfo out;
+  out.type = base.type;
+  out.stream_index = base.stream_index;
+  out.time_base = base.time_base;
+  out.params.reset(avcodec_parameters_alloc());
+  if (!out.params) {
+    return from_av(AVERROR(ENOMEM), "cannot allocate codec parameters");
+  }
+  if (const int ret = avcodec_parameters_copy(out.params.get(), base.params.get()); ret < 0) {
+    return from_av(ret, "cannot copy codec parameters");
+  }
+  if (sample_rate > 0) {
+    out.params->sample_rate = sample_rate;
+    out.time_base = AVRational{1, sample_rate};
+  }
+  if (channels > 0) {
+    av_channel_layout_default(&out.params->ch_layout, channels);
+  }
+  return out;
+}
+
 /// Pulls every packet the encoder currently has and writes it out.
 Status drain_encoder(Encoder& encoder, Muxer& muxer, PipelineStats& stats) {
   for (;;) {
@@ -65,7 +93,6 @@ Status drain_encoder(Encoder& encoder, Muxer& muxer, PipelineStats& stats) {
 }
 
 /// Deterministic synthetic video: a luma ramp with a moving bright block, chroma flat at 128.
-/// Used by `avpipe gen` and by the end-to-end test so neither needs a checked-in media file.
 class SyntheticSource : public FrameSource {
  public:
   SyntheticSource(int width, int height, int fps, int frames)
@@ -157,7 +184,28 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   }
 
   FrameSource* frames = decoder.value().get();
+  std::unique_ptr<FilterSource> filter;
   std::unique_ptr<ScalingSource> scaler;
+  Frame first_frame;  // buffered from the filter so the encoder can be sized from real output
+
+  if (!request.filter.empty()) {
+    auto opened = FilterSource::open(*frames, request.filter, source_info->time_base);
+    if (!opened) {
+      return opened.error();
+    }
+    filter = opened.take();
+    frames = filter.get();
+    // The filter decides the output geometry (crop/scale/pad) and the output time base (fps).
+    // Both must be measured from a real frame before the encoder is opened.
+    auto probe_frame = frames->pull();
+    if (!probe_frame) {
+      if (probe_frame.error().code != Code::end_of_stream) {
+        return probe_frame.error();
+      }
+    } else {
+      first_frame = probe_frame.take();
+    }
+  }
   if (request.width > 0 && request.height > 0) {
     auto opened = ScalingSource::open(*frames, request.width, request.height);
     if (!opened) {
@@ -171,19 +219,27 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   if (!encoder_input) {
     return encoder_input.error();
   }
+  if (filter) {
+    const AVRational filter_tb = filter->output_time_base();
+    encoder_input.value().time_base = filter_tb;
+    if (!first_frame.empty() && scaler == nullptr) {
+      encoder_input.value().params->width = first_frame->width;
+      encoder_input.value().params->height = first_frame->height;
+    }
+  }
 
-  // Frame rate: default to the source cadence. An explicit but different rate is refused, because
-  // this graph has no filter stage to duplicate/drop frames (see docs/DESIGN.md).
+  // Frame rate: default to the source cadence. An explicit but different rate is only allowed
+  // when the filter chain converts it; otherwise the output metadata would lie.
   EncodeOptions encode_options = request.encode;
-  const double source_fps = source_info->params->framerate.num > 0
-                                ? av_q2d(source_info->params->framerate)
-                                : 0.0;
-  if (request.force_fps && source_fps > 0.0 &&
+  const double source_fps =
+      source_info->params->framerate.num > 0 ? av_q2d(source_info->params->framerate) : 0.0;
+  const bool filter_sets_fps = request.filter.find("fps=") != std::string::npos;
+  if (request.force_fps && !filter_sets_fps && source_fps > 0.0 &&
       std::abs(static_cast<double>(encode_options.fps) - source_fps) > 0.5) {
     return fail(Code::unsupported,
                 "frame rate conversion (" + std::to_string(encode_options.fps) + " fps from " +
                     std::to_string(source_fps) +
-                    " fps source) needs a filter stage and is not implemented; drop --fps");
+                    " fps source) needs a filter; pass --filter 'fps=N' or drop --fps");
   }
   if (!request.force_fps && source_fps > 0.0) {
     encode_options.fps = static_cast<int>(source_fps + 0.5);
@@ -197,6 +253,15 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   auto muxer = Muxer::open(request.output, encoder.value()->out_info());
   if (!muxer) {
     return muxer.error();
+  }
+
+  if (!first_frame.empty()) {
+    if (auto pushed = encoder.value()->push(first_frame); pushed) {
+      return pushed;
+    }
+    if (auto written = drain_encoder(*encoder.value(), *muxer.value(), stats); written) {
+      return written;
+    }
   }
 
   for (;;) {
@@ -233,12 +298,160 @@ Expected<PipelineStats> transcode(const TranscodeRequest& request) {
   return stats;
 }
 
+Expected<PipelineStats> transcode_audio(const AudioTranscodeRequest& request) {
+  PipelineStats stats;
+  const auto started = Clock::now();
+
+  auto demuxer = Demuxer::open(request.input);
+  if (!demuxer) {
+    return demuxer.error();
+  }
+  if (auto selected = demuxer.value()->select_stream(AVMEDIA_TYPE_AUDIO); selected) {
+    return selected;
+  }
+  const StreamInfo* source_info = demuxer.value()->find(AVMEDIA_TYPE_AUDIO);
+  if (source_info == nullptr) {
+    return fail(Code::unsupported, "no audio stream in '" + request.input + "'");
+  }
+
+  auto decoder = Decoder::open(*demuxer.value(), *source_info);
+  if (!decoder) {
+    return decoder.error();
+  }
+
+  auto encoder_input = audio_info(*source_info, request.sample_rate, request.channels);
+  if (!encoder_input) {
+    return encoder_input.error();
+  }
+  auto encoder = Encoder::open(encoder_input.value(), request.encode);
+  if (!encoder) {
+    return encoder.error();
+  }
+
+  // The encoder decides rate/layout/sample format; the resampler has to match it exactly and the
+  // slicer has to feed exactly frame_size samples per push (AAC: 1024).
+  auto resampler =
+      AudioResampler::open(*decoder.value(), encoder.value()->audio_sample_rate(),
+                           encoder.value()->audio_channels(),
+                           encoder.value()->audio_sample_format());
+  if (!resampler) {
+    return resampler.error();
+  }
+
+  auto slicer = AudioSlicer::open(*resampler.value(), encoder.value()->audio_frame_size());
+  if (!slicer) {
+    return slicer.error();
+  }
+
+  auto muxer = Muxer::open(request.output, encoder.value()->out_info());
+  if (!muxer) {
+    return muxer.error();
+  }
+
+  for (;;) {
+    auto frame = slicer.value()->pull();
+    if (!frame) {
+      if (frame.error().code == Code::end_of_stream) {
+        break;
+      }
+      return frame.error();
+    }
+    if (auto pushed = encoder.value()->push(frame.value()); pushed) {
+      return pushed;
+    }
+    if (auto written = drain_encoder(*encoder.value(), *muxer.value(), stats); written) {
+      return written;
+    }
+  }
+
+  if (auto flushed = encoder.value()->flush(); flushed) {
+    return flushed;
+  }
+  if (auto written = drain_encoder(*encoder.value(), *muxer.value(), stats); written) {
+    return written;
+  }
+  if (auto closed = muxer.value()->close(); closed) {
+    return closed;
+  }
+
+  stats.packets_read = demuxer.value()->packets_read();
+  stats.frames_decoded = decoder.value()->frames_decoded();
+  stats.frames_converted = resampler.value()->frames_converted();
+  stats.frames_encoded = encoder.value()->frames_in();
+  stats.wall_ms = elapsed_ms(started);
+  return stats;
+}
+
 Expected<PipelineStats> generate(const GenerateRequest& request) {
+  PipelineStats stats;
+  const auto started = Clock::now();
+
+  if (request.audio) {
+    StreamInfo template_info;
+    template_info.type = AVMEDIA_TYPE_AUDIO;
+    template_info.time_base = AVRational{1, request.sample_rate};
+    template_info.params.reset(avcodec_parameters_alloc());
+    if (!template_info.params) {
+      return from_av(AVERROR(ENOMEM), "cannot allocate codec parameters");
+    }
+    template_info.params->codec_type = AVMEDIA_TYPE_AUDIO;
+    template_info.params->sample_rate = request.sample_rate;
+    av_channel_layout_default(&template_info.params->ch_layout, request.channels);
+
+    auto encoder = Encoder::open(template_info, request.encode);
+    if (!encoder) {
+      return encoder.error();
+    }
+    auto muxer = Muxer::open(request.output, encoder.value()->out_info());
+    if (!muxer) {
+      return muxer.error();
+    }
+
+    const int frame_size = encoder.value()->audio_frame_size();
+    const int rate = encoder.value()->audio_sample_rate();
+    const int channels = encoder.value()->audio_channels();
+    const int total_frames =
+        static_cast<int>(std::ceil(request.seconds * rate / static_cast<double>(frame_size)));
+    if (total_frames <= 0) {
+      return fail(Code::invalid_argument, "generate: duration must be positive");
+    }
+
+    ToneSource source(rate, channels, encoder.value()->audio_sample_format(), frame_size,
+                      total_frames);
+    for (;;) {
+      auto frame = source.pull();
+      if (!frame) {
+        if (frame.error().code == Code::end_of_stream) {
+          break;
+        }
+        return frame.error();
+      }
+      ++stats.frames_decoded;
+      if (auto pushed = encoder.value()->push(frame.value()); pushed) {
+        return pushed;
+      }
+      if (auto written = drain_encoder(*encoder.value(), *muxer.value(), stats); written) {
+        return written;
+      }
+    }
+
+    if (auto flushed = encoder.value()->flush(); flushed) {
+      return flushed;
+    }
+    if (auto written = drain_encoder(*encoder.value(), *muxer.value(), stats); written) {
+      return written;
+    }
+    if (auto closed = muxer.value()->close(); closed) {
+      return closed;
+    }
+    stats.frames_encoded = encoder.value()->frames_in();
+    stats.wall_ms = elapsed_ms(started);
+    return stats;
+  }
+
   if (request.frames <= 0) {
     return fail(Code::invalid_argument, "generate: frame count must be positive");
   }
-  PipelineStats stats;
-  const auto started = Clock::now();
 
   StreamInfo template_info;
   template_info.type = AVMEDIA_TYPE_VIDEO;
