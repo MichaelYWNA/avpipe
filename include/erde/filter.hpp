@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_FILTER_HPP
-#define AVPIPE_FILTER_HPP
+#ifndef ERDE_FILTER_HPP
+#define ERDE_FILTER_HPP
 
 #include <memory>
 #include <string>
 
-#include <avpipe/media.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/media.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// libavfilter stage: inserts an arbitrary filter chain (e.g. "fps=15,scale=640:480,crop=...")
 /// between two frame stages.
@@ -52,6 +52,6 @@ class FilterSource : public FrameSource {
   int64_t frames_out_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_FILTER_HPP
+#endif  // ERDE_FILTER_HPP

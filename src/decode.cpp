@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/decode.hpp>
+#include <erde/decode.hpp>
 
-namespace avpipe {
+namespace erde {
 
 Expected<std::unique_ptr<Decoder>> Decoder::open(PacketSource& source, const StreamInfo& info) {
   if (!info.params) {
@@ -119,4 +119,4 @@ Expected<Frame> Decoder::pull() {
   }
 }
 
-}  // namespace avpipe
+}  // namespace erde

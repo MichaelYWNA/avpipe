@@ -7,23 +7,23 @@
 #include <string>
 #include <vector>
 
-#include <avpipe/config.hpp>
-#include <avpipe/encode.hpp>
-#include <avpipe/pipeline.hpp>
+#include <erde/config.hpp>
+#include <erde/encode.hpp>
+#include <erde/pipeline.hpp>
 
 namespace {
 
 constexpr const char* kVersion = "0.3.0";
 
 void print_usage(std::ostream& os) {
-  os << "avpipe " << kVersion << " - pull-based audio/video pipeline on libav*\n"
+  os << "erde " << kVersion << " - pull-based audio/video pipeline on libav*\n"
      << "\n"
      << "usage:\n"
-     << "  avpipe probe <file>\n"
-     << "  avpipe gen <out> [options]\n"
-     << "  avpipe transcode <in> <out> [options]\n"
-     << "  avpipe transcode-audio <in> <out> [options]\n"
-     << "  avpipe bench <in> <out> [--runs N] [options]\n"
+     << "  erde probe <file>\n"
+     << "  erde gen <out> [options]\n"
+     << "  erde transcode <in> <out> [options]\n"
+     << "  erde transcode-audio <in> <out> [options]\n"
+     << "  erde bench <in> <out> [--runs N] [options]\n"
      << "\n"
      << "options:\n"
      << "  --codec <name>     encoder name (video: libx264/libx265/mpeg4; audio: aac/libmp3lame)\n"
@@ -80,13 +80,13 @@ struct Options {
   std::string hw_device;
 };
 
-int fail(const avpipe::Error& error) {
-  std::cerr << "avpipe: " << error.to_string() << "\n";
+int fail(const erde::Error& error) {
+  std::cerr << "erde: " << error.to_string() << "\n";
   return 2;
 }
 
 int usage_error(const std::string& message) {
-  std::cerr << "avpipe: " << message << "\n\n";
+  std::cerr << "erde: " << message << "\n\n";
   print_usage(std::cerr);
   return 1;
 }
@@ -99,15 +99,15 @@ bool needs_value(const std::string& flag) {
          flag == "--audio-filter" || flag == "--audio-codec" || flag == "--audio-bitrate";
 }
 
-avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
+erde::Status apply_option(Options& options, erde::EncodeOptions& encode,
                             const std::string& flag, const std::string& value) {
-  using avpipe::Code;
-  using avpipe::fail;
+  using erde::Code;
+  using erde::fail;
   if (flag == "--codec") {
     encode.codec = value;
     options.codec_explicit = true;
   } else if (flag == "--bitrate") {
-    auto parsed = avpipe::parse_bit_rate(value);
+    auto parsed = erde::parse_bit_rate(value);
     if (!parsed) {
       return parsed.error();
     }
@@ -115,19 +115,19 @@ avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
   } else if (flag == "--preset") {
     encode.preset = value;
   } else if (flag == "--crf") {
-    auto parsed = avpipe::parse_int(value, "--crf");
+    auto parsed = erde::parse_int(value, "--crf");
     if (!parsed) {
       return parsed.error();
     }
     encode.crf = static_cast<int>(parsed.value());
   } else if (flag == "--gop") {
-    auto parsed = avpipe::parse_int(value, "--gop");
+    auto parsed = erde::parse_int(value, "--gop");
     if (!parsed) {
       return parsed.error();
     }
     encode.gop = static_cast<int>(parsed.value());
   } else if (flag == "--fps") {
-    auto parsed = avpipe::parse_int(value, "--fps");
+    auto parsed = erde::parse_int(value, "--fps");
     if (!parsed) {
       return parsed.error();
     }
@@ -135,19 +135,19 @@ avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
     options.fps_explicit = true;
     encode.fps = options.fps;
   } else if (flag == "--frames") {
-    auto parsed = avpipe::parse_int(value, "--frames");
+    auto parsed = erde::parse_int(value, "--frames");
     if (!parsed) {
       return parsed.error();
     }
     options.frames = static_cast<int>(parsed.value());
   } else if (flag == "--runs") {
-    auto parsed = avpipe::parse_int(value, "--runs");
+    auto parsed = erde::parse_int(value, "--runs");
     if (!parsed) {
       return parsed.error();
     }
     options.runs = static_cast<int>(parsed.value());
   } else if (flag == "--size") {
-    auto parsed = avpipe::parse_size(value);
+    auto parsed = erde::parse_size(value);
     if (!parsed) {
       return parsed.error();
     }
@@ -163,14 +163,14 @@ avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
     }
     options.seconds = parsed;
   } else if (flag == "--rate") {
-    auto parsed = avpipe::parse_int(value, "--rate");
+    auto parsed = erde::parse_int(value, "--rate");
     if (!parsed) {
       return parsed.error();
     }
     options.sample_rate = static_cast<int>(parsed.value());
     encode.sample_rate = options.sample_rate;
   } else if (flag == "--channels") {
-    auto parsed = avpipe::parse_int(value, "--channels");
+    auto parsed = erde::parse_int(value, "--channels");
     if (!parsed) {
       return parsed.error();
     }
@@ -187,7 +187,7 @@ avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
   } else if (flag == "--audio-codec") {
     options.audio_codec = value;
   } else if (flag == "--audio-bitrate") {
-    auto parsed = avpipe::parse_bit_rate(value);
+    auto parsed = erde::parse_bit_rate(value);
     if (!parsed) {
       return parsed.error();
     }
@@ -195,7 +195,7 @@ avpipe::Status apply_option(Options& options, avpipe::EncodeOptions& encode,
   } else {
     return fail(Code::invalid_argument, "unknown option " + flag);
   }
-  return avpipe::ok();
+  return erde::ok();
 }
 
 }  // namespace
@@ -215,7 +215,7 @@ int main(int argc, char** argv) {
   args.erase(args.begin());
 
   Options options;
-  avpipe::EncodeOptions encode;
+  erde::EncodeOptions encode;
   std::vector<std::string> positional;
   std::string config_path;
 
@@ -262,7 +262,7 @@ int main(int argc, char** argv) {
   }
 
   if (!config_path.empty()) {
-    auto config = avpipe::Config::load(config_path);
+    auto config = erde::Config::load(config_path);
     if (!config) {
       return fail(config.error());
     }
@@ -272,7 +272,7 @@ int main(int argc, char** argv) {
       options.codec_explicit = true;
     }
     if (cfg.has("encode", "bitrate")) {
-      auto parsed = avpipe::parse_bit_rate(cfg.get("encode", "bitrate"));
+      auto parsed = erde::parse_bit_rate(cfg.get("encode", "bitrate"));
       if (!parsed) {
         return fail(parsed.error());
       }
@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
     encode.fps = options.fps;
     const std::string size = cfg.get("video", "size");
     if (!size.empty()) {
-      auto parsed = avpipe::parse_size(size);
+      auto parsed = erde::parse_size(size);
       if (!parsed) {
         return fail(parsed.error());
       }
@@ -333,7 +333,7 @@ int main(int argc, char** argv) {
     if (positional.size() != 1) {
       return usage_error("probe needs exactly one file");
     }
-    auto report = avpipe::probe(positional.front());
+    auto report = erde::probe(positional.front());
     if (!report) {
       return fail(report.error());
     }
@@ -348,13 +348,13 @@ int main(int argc, char** argv) {
     if (positional.size() != 1) {
       return usage_error("gen needs an output file");
     }
-    avpipe::GenerateRequest request;
+    erde::GenerateRequest request;
     request.output = positional.front();
     if (options.audio && !options.codec_explicit) {
       encode.codec = "aac";
     }
     request.encode = encode;
-    request.audio_encode = avpipe::default_audio_encode();
+    request.audio_encode = erde::default_audio_encode();
     request.audio_encode.codec = options.audio_codec;
     request.audio_encode.bit_rate = options.audio_bit_rate;
     request.width = options.width > 0 ? options.width : 640;
@@ -366,7 +366,7 @@ int main(int argc, char** argv) {
     request.seconds = options.seconds;
     request.sample_rate = options.sample_rate > 0 ? options.sample_rate : 48'000;
     request.channels = options.channels > 0 ? options.channels : 2;
-    auto stats = avpipe::generate(request);
+    auto stats = erde::generate(request);
     if (!stats) {
       return fail(stats.error());
     }
@@ -384,14 +384,14 @@ int main(int argc, char** argv) {
     if (!options.codec_explicit) {
       encode.codec = "aac";
     }
-    avpipe::AudioTranscodeRequest request;
+    erde::AudioTranscodeRequest request;
     request.input = positional[0];
     request.output = positional[1];
     request.encode = encode;
     request.sample_rate = options.sample_rate;
     request.channels = options.channels;
     request.filter = options.audio_filter;
-    auto stats = avpipe::transcode_audio(request);
+    auto stats = erde::transcode_audio(request);
     if (!stats) {
       return fail(stats.error());
     }
@@ -403,11 +403,11 @@ int main(int argc, char** argv) {
     if (positional.size() != 2) {
       return usage_error(command + " needs an input and an output file");
     }
-    avpipe::TranscodeRequest request;
+    erde::TranscodeRequest request;
     request.input = positional[0];
     request.output = positional[1];
     request.encode = encode;
-    request.audio_encode = avpipe::default_audio_encode();
+    request.audio_encode = erde::default_audio_encode();
     request.audio_encode.codec = options.audio_codec;
     request.audio_encode.bit_rate = options.audio_bit_rate;
     request.audio_encode.sample_rate = options.sample_rate;
@@ -420,7 +420,7 @@ int main(int argc, char** argv) {
     request.force_fps = options.fps_explicit;
 
     if (command == "transcode") {
-      auto stats = avpipe::transcode(request);
+      auto stats = erde::transcode(request);
       if (!stats) {
         return fail(stats.error());
       }
@@ -428,7 +428,7 @@ int main(int argc, char** argv) {
       return 0;
     }
 
-    auto report = avpipe::bench(request, options.runs);
+    auto report = erde::bench(request, options.runs);
     if (!report) {
       return fail(report.error());
     }

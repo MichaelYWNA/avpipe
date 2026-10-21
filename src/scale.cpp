@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/scale.hpp>
+#include <erde/scale.hpp>
 
 #include <cerrno>
 
-namespace avpipe {
+namespace erde {
 
 Expected<std::unique_ptr<ScalingSource>> ScalingSource::open(FrameSource& source, int width,
                                                              int height) {
@@ -72,4 +72,4 @@ Expected<Frame> ScalingSource::convert(const Frame& source) {
   return out;
 }
 
-}  // namespace avpipe
+}  // namespace erde

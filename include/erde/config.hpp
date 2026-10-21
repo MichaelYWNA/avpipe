@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_CONFIG_HPP
-#define AVPIPE_CONFIG_HPP
+#ifndef ERDE_CONFIG_HPP
+#define ERDE_CONFIG_HPP
 
 #include <cstdint>
 #include <map>
@@ -8,9 +8,9 @@
 #include <string_view>
 #include <utility>
 
-#include <avpipe/error.hpp>
+#include <erde/error.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// Tiny INI-style configuration reader (sections, `key = value`, `#` comments).
 ///
@@ -47,6 +47,6 @@ Expected<int64_t> parse_bit_rate(const std::string& text);
 /// Whole string must be a non-negative integer.
 Expected<int64_t> parse_int(const std::string& text, const char* what);
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_CONFIG_HPP
+#endif  // ERDE_CONFIG_HPP

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/demux.hpp>
+#include <erde/demux.hpp>
 
 #include <utility>
 
-namespace avpipe {
+namespace erde {
 
 Expected<std::unique_ptr<Demuxer>> Demuxer::open(const std::string& path) {
   std::unique_ptr<Demuxer> demux(new Demuxer());
@@ -122,4 +122,4 @@ std::string Demuxer::format_name() const {
   return format_->iformat->name;
 }
 
-}  // namespace avpipe
+}  // namespace erde

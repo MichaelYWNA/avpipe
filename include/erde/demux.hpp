@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_DEMUX_HPP
-#define AVPIPE_DEMUX_HPP
+#ifndef ERDE_DEMUX_HPP
+#define ERDE_DEMUX_HPP
 
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <avpipe/media.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/media.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// Opens a container and hands out its packets.
 ///
@@ -48,6 +48,6 @@ class Demuxer : public PacketSource {
   int64_t packets_read_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_DEMUX_HPP
+#endif  // ERDE_DEMUX_HPP

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/audio.hpp>
+#include <erde/audio.hpp>
 
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 
-namespace avpipe {
+namespace erde {
 
 namespace {
 
@@ -371,4 +371,4 @@ Expected<Frame> AudioSlicer::pull() {
   }
 }
 
-}  // namespace avpipe
+}  // namespace erde

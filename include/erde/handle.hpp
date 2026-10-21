@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_HANDLE_HPP
-#define AVPIPE_HANDLE_HPP
+#ifndef ERDE_HANDLE_HPP
+#define ERDE_HANDLE_HPP
 
 #include <utility>
 
-namespace avpipe {
+namespace erde {
 
 /// `Ptr` is a move-only owner for a libav object.
 ///
@@ -79,6 +79,6 @@ class Ptr {
   T* raw_ = nullptr;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_HANDLE_HPP
+#endif  // ERDE_HANDLE_HPP

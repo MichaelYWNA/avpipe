@@ -6,21 +6,21 @@
 #include <filesystem>
 #include <string>
 
-#include <avpipe/encode.hpp>
-#include <avpipe/pipeline.hpp>
+#include <erde/encode.hpp>
+#include <erde/pipeline.hpp>
 
 namespace {
 
 std::filesystem::path temp_path(const std::string& name) {
-  const auto dir = std::filesystem::temp_directory_path() / "avpipe-tests";
+  const auto dir = std::filesystem::temp_directory_path() / "erde-tests";
   std::filesystem::create_directories(dir);
   const auto path = dir / name;
   std::filesystem::remove(path);
   return path;
 }
 
-avpipe::EncodeOptions fast_options() {
-  avpipe::EncodeOptions options;
+erde::EncodeOptions fast_options() {
+  erde::EncodeOptions options;
   options.codec = "mpeg4";
   options.bit_rate = 400'000;
   options.preset.clear();
@@ -30,14 +30,14 @@ avpipe::EncodeOptions fast_options() {
 
 std::string make_source(int frames, int fps) {
   const std::string path = temp_path("filter-source.avi").string();
-  avpipe::GenerateRequest gen;
+  erde::GenerateRequest gen;
   gen.output = path;
   gen.encode = fast_options();
   gen.width = 160;
   gen.height = 120;
   gen.fps = fps;
   gen.frames = frames;
-  CHECK(avpipe::generate(gen).has_value());
+  CHECK(erde::generate(gen).has_value());
   return path;
 }
 
@@ -46,7 +46,7 @@ std::string make_source(int frames, int fps) {
 TEST_CASE(filter_drops_frames_for_fps_conversion) {
   const std::string source = make_source(30, 30);
 
-  avpipe::TranscodeRequest request;
+  erde::TranscodeRequest request;
   request.input = source;
   request.output = temp_path("filter-fps.avi").string();
   request.encode = fast_options();
@@ -54,7 +54,7 @@ TEST_CASE(filter_drops_frames_for_fps_conversion) {
   request.encode.fps = 15;
   request.force_fps = true;  // allowed because the filter chain converts the rate
 
-  auto stats = avpipe::transcode(request);
+  auto stats = erde::transcode(request);
   CHECK(stats.has_value());
   // 30 frames at 30 fps is 1 s; at 15 fps that must come out as ~15 frames.
   CHECK(stats.value().frames_encoded >= 13);
@@ -65,16 +65,16 @@ TEST_CASE(filter_drops_frames_for_fps_conversion) {
 TEST_CASE(filter_crops_geometry) {
   const std::string source = make_source(6, 15);
 
-  avpipe::TranscodeRequest request;
+  erde::TranscodeRequest request;
   request.input = source;
   request.output = temp_path("filter-crop.avi").string();
   request.encode = fast_options();
   request.filter = "crop=96:72:0:0";
 
-  auto stats = avpipe::transcode(request);
+  auto stats = erde::transcode(request);
   CHECK(stats.has_value());
 
-  auto report = avpipe::probe(request.output);
+  auto report = erde::probe(request.output);
   CHECK(report.has_value());
   bool cropped = false;
   for (const std::string& line : report.value().lines) {
@@ -88,15 +88,15 @@ TEST_CASE(filter_crops_geometry) {
 TEST_CASE(bad_filter_is_reported) {
   const std::string source = make_source(3, 15);
 
-  avpipe::TranscodeRequest request;
+  erde::TranscodeRequest request;
   request.input = source;
   request.output = temp_path("filter-bad.avi").string();
   request.encode = fast_options();
   request.filter = "no_such_filter=1";
 
-  auto stats = avpipe::transcode(request);
+  auto stats = erde::transcode(request);
   CHECK(!stats.has_value());
-  CHECK(stats.error().code == avpipe::Code::ffmpeg);
+  CHECK(stats.error().code == erde::Code::ffmpeg);
 }
 
 TEST_MAIN()

@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/encode.hpp>
+#include <erde/encode.hpp>
 
 #include <utility>
 
-namespace avpipe {
+namespace erde {
 
 namespace {
 
@@ -366,4 +366,4 @@ Expected<Packet> Encoder::pull() {
   return fail(Code::need_more, "encoder has no packet yet");
 }
 
-}  // namespace avpipe
+}  // namespace erde

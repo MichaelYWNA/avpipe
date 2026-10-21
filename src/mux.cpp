@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/mux.hpp>
+#include <erde/mux.hpp>
 
-namespace avpipe {
+namespace erde {
 
 Expected<std::unique_ptr<Muxer>> Muxer::open(const std::string& path) {
   std::unique_ptr<Muxer> muxer(new Muxer());
@@ -126,4 +126,4 @@ Status Muxer::close() {
   return ok();
 }
 
-}  // namespace avpipe
+}  // namespace erde

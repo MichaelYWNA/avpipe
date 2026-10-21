@@ -3,8 +3,8 @@
 // Minimal test harness: a registration list, two assertion macros and a runner.
 // Deliberately dependency-free so `ctest` works on a machine that only has a compiler and
 // libav installed (no gtest download, no package manager round trip).
-#ifndef AVPIPE_TESTS_HARNESS_HPP
-#define AVPIPE_TESTS_HARNESS_HPP
+#ifndef ERDE_TESTS_HARNESS_HPP
+#define ERDE_TESTS_HARNESS_HPP
 
 #include <functional>
 #include <iostream>
@@ -100,4 +100,4 @@ inline int run_all() {
 #define TEST_MAIN()                                                         \
   int main() { return ::mini::run_all(); }
 
-#endif  // AVPIPE_TESTS_HARNESS_HPP
+#endif  // ERDE_TESTS_HARNESS_HPP

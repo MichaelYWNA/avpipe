@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-// avpipe - a small, pull-based audio/video pipeline on top of libav*.
-#ifndef AVPIPE_ERROR_HPP
-#define AVPIPE_ERROR_HPP
+// erde - a small, pull-based audio/video pipeline on top of libav*.
+#ifndef ERDE_ERROR_HPP
+#define ERDE_ERROR_HPP
 
 #include <optional>
 #include <string>
 #include <utility>
 
-namespace avpipe {
+namespace erde {
 
 /// Coarse classification of a failure. `need_more` and `end_of_stream` are not failures in
 /// the pull loop, which is why they live next to the real error codes instead of being
@@ -78,6 +78,6 @@ class Expected {
 /// Operations that only report success/failure use Error directly; alias for readability.
 using Status = Error;
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_ERROR_HPP
+#endif  // ERDE_ERROR_HPP

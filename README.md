@@ -1,4 +1,4 @@
-# avpipe
+# Erde
 
 基于 libav\* 的**拉取式**音视频转码管线：解复用 → 解码 → （可选）libavfilter → （可选）缩放 →
 编码 → **多流混流**，全部 C++17，不依赖 ROS、不依赖任何第三方框架，只用 pkg-config 找到
@@ -20,7 +20,7 @@
 | 音频滤镜 | `atempo=2.0` 把 1.002 s 压到 **0.512 s** |
 | CI | GitHub Actions，gcc + clang 双矩阵，含 CLI 冒烟 |
 
-实测吞吐（Ubuntu 24.04 / WSL2 / 32 vCPU / FFmpeg 6.1 / Release，`avpipe bench` 多次平均）：
+实测吞吐（Ubuntu 24.04 / WSL2 / 32 vCPU / FFmpeg 6.1 / Release，`erde bench` 多次平均）：
 
 | 链路 | 吞吐 |
 |---|---|
@@ -82,38 +82,38 @@ ctest --test-dir build --output-on-failure
 
 ```bash
 # 造一个 2 秒、带音轨的 640x480 测试片
-./build/avpipe gen /tmp/av.mp4 --size 640x480 --fps 30 --frames 60 --crf 23 --with-audio --seconds 2
-./build/avpipe probe /tmp/av.mp4
+./build/erde gen /tmp/av.mp4 --size 640x480 --fps 30 --frames 60 --crf 23 --with-audio --seconds 2
+./build/erde probe /tmp/av.mp4
 #   video(index=0, codec=h264, 640x480, fps=30, tb=1/15360) packets=60
 #   audio(index=1, codec=aac, 48000 Hz, tb=1/48000) packets=95
 
 # 两路一起转：视频转 mpeg4 并缩放，音频保持 aac
-./build/avpipe transcode /tmp/av.mp4 /tmp/out.mp4 --codec mpeg4 --size 320x240 --audio-bitrate 96k
+./build/erde transcode /tmp/av.mp4 /tmp/out.mp4 --codec mpeg4 --size 320x240 --audio-bitrate 96k
 
 # 只要画面
-./build/avpipe transcode /tmp/av.mp4 /tmp/v.mp4 --codec mpeg4 --no-audio
+./build/erde transcode /tmp/av.mp4 /tmp/v.mp4 --codec mpeg4 --no-audio
 
 # 音频滤镜
-./build/avpipe transcode /tmp/av.mp4 /tmp/f.mp4 --codec mpeg4 --audio-filter 'volume=0.5'
+./build/erde transcode /tmp/av.mp4 /tmp/f.mp4 --codec mpeg4 --audio-filter 'volume=0.5'
 ```
 
 音频单独处理：
 
 ```bash
-./build/avpipe gen /tmp/tone.m4a --audio --seconds 10 --rate 48000 --channels 2
-./build/avpipe transcode-audio /tmp/tone.m4a /tmp/tone-out.m4a --rate 44100 --channels 1
-./build/avpipe transcode-audio /tmp/tone.m4a /tmp/tone-fast.m4a --audio-filter 'atempo=2.0'
+./build/erde gen /tmp/tone.m4a --audio --seconds 10 --rate 48000 --channels 2
+./build/erde transcode-audio /tmp/tone.m4a /tmp/tone-out.m4a --rate 44100 --channels 1
+./build/erde transcode-audio /tmp/tone.m4a /tmp/tone-fast.m4a --audio-filter 'atempo=2.0'
 ```
 
 ## 命令
 
 | 命令 | 作用 |
 |---|---|
-| `avpipe probe <file>` | 容器、每路流的编码/分辨率/帧率/采样率/时间基、包数、大小 |
-| `avpipe gen <out>` | 合成测试片；`--audio` 纯音，`--with-audio` 画面加音轨 |
-| `avpipe transcode <in> <out>` | 视频（有音轨时一并转），`--no-audio` 丢掉音频 |
-| `avpipe transcode-audio <in> <out>` | 音频链路 |
-| `avpipe bench <in> <out>` | 重复转码并打印 fps |
+| `erde probe <file>` | 容器、每路流的编码/分辨率/帧率/采样率/时间基、包数、大小 |
+| `erde gen <out>` | 合成测试片；`--audio` 纯音，`--with-audio` 画面加音轨 |
+| `erde transcode <in> <out>` | 视频（有音轨时一并转），`--no-audio` 丢掉音频 |
+| `erde transcode-audio <in> <out>` | 音频链路 |
+| `erde bench <in> <out>` | 重复转码并打印 fps |
 
 通用选项：`--codec` / `--bitrate` / `--preset` / `--crf` / `--gop` / `--fps` / `--size` /
 `--filter` / `--audio-filter` / `--audio-codec` / `--audio-bitrate` / `--no-audio` /
@@ -146,7 +146,7 @@ gop     = 12
 ## 目录
 
 ```
-include/avpipe/    公开头文件：error/expected、RAII Ptr、Frame/Packet、stage 接口、各 stage
+include/erde/    公开头文件：error/expected、RAII Ptr、Frame/Packet、stage 接口、各 stage
 src/               实现；cli/main.cpp 是命令行入口
 tests/             极简测试框架 + 7 个测试程序（config/media/pipeline/filter/audio/encode/av）
 docs/DESIGN.md     设计取舍：拉取模型、时间基、滤镜、音频、多流混流、硬件上传、测试策略

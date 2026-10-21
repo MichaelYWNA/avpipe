@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(avpipe VERSION 0.3.0 LANGUAGES CXX)
+project(erde VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,7 +21,7 @@ pkg_check_modules(LIBAV REQUIRED IMPORTED_TARGET
   libavfilter
 )
 
-add_library(avpipe_core STATIC
+add_library(erde_core STATIC
   src/media.cpp
   src/config.cpp
   src/demux.cpp
@@ -33,15 +33,15 @@ add_library(avpipe_core STATIC
   src/mux.cpp
   src/pipeline.cpp
 )
-target_include_directories(avpipe_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(avpipe_core PUBLIC PkgConfig::LIBAV)
-target_compile_options(avpipe_core PRIVATE -Wall -Wextra -Wpedantic)
+target_include_directories(erde_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(erde_core PUBLIC PkgConfig::LIBAV)
+target_compile_options(erde_core PRIVATE -Wall -Wextra -Wpedantic)
 
-add_executable(avpipe src/cli/main.cpp)
-target_link_libraries(avpipe PRIVATE avpipe_core)
-target_compile_options(avpipe PRIVATE -Wall -Wextra -Wpedantic)
+add_executable(erde src/cli/main.cpp)
+target_link_libraries(erde PRIVATE erde_core)
+target_compile_options(erde PRIVATE -Wall -Wextra -Wpedantic)
 
 enable_testing()
 add_subdirectory(tests)
 
-install(TARGETS avpipe RUNTIME DESTINATION bin)
+install(TARGETS erde RUNTIME DESTINATION bin)

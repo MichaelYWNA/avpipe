@@ -8,12 +8,12 @@
 
 #include <string>
 
-#include <avpipe/encode.hpp>
+#include <erde/encode.hpp>
 
 namespace {
 
-avpipe::StreamInfo video_template() {
-  avpipe::StreamInfo info;
+erde::StreamInfo video_template() {
+  erde::StreamInfo info;
   info.type = AVMEDIA_TYPE_VIDEO;
   info.stream_index = 0;
   info.time_base = AVRational{1, 30};
@@ -25,8 +25,8 @@ avpipe::StreamInfo video_template() {
   return info;
 }
 
-avpipe::StreamInfo audio_template() {
-  avpipe::StreamInfo info;
+erde::StreamInfo audio_template() {
+  erde::StreamInfo info;
   info.type = AVMEDIA_TYPE_AUDIO;
   info.stream_index = 0;
   info.time_base = AVRational{1, 48000};
@@ -40,12 +40,12 @@ avpipe::StreamInfo audio_template() {
 }  // namespace
 
 TEST_CASE(opens_a_software_video_encoder) {
-  const avpipe::StreamInfo info = video_template();
-  avpipe::EncodeOptions options;
+  const erde::StreamInfo info = video_template();
+  erde::EncodeOptions options;
   options.codec = "mpeg4";
   options.preset.clear();
 
-  auto encoder = avpipe::Encoder::open(info, options);
+  auto encoder = erde::Encoder::open(info, options);
   CHECK(encoder.has_value());
   CHECK(!encoder.value()->is_hardware());
   CHECK(encoder.value()->out_info().params.get() != nullptr);
@@ -53,12 +53,12 @@ TEST_CASE(opens_a_software_video_encoder) {
 }
 
 TEST_CASE(opens_an_audio_encoder_and_reports_frame_size) {
-  const avpipe::StreamInfo info = audio_template();
-  avpipe::EncodeOptions options;
+  const erde::StreamInfo info = audio_template();
+  erde::EncodeOptions options;
   options.codec = "aac";
   options.bit_rate = 64'000;
 
-  auto encoder = avpipe::Encoder::open(info, options);
+  auto encoder = erde::Encoder::open(info, options);
   CHECK(encoder.has_value());
   CHECK(encoder.value()->audio_frame_size() > 0);
   CHECK_EQ(encoder.value()->audio_sample_rate(), 48000);
@@ -66,30 +66,30 @@ TEST_CASE(opens_an_audio_encoder_and_reports_frame_size) {
 }
 
 TEST_CASE(unknown_encoder_is_rejected) {
-  const avpipe::StreamInfo info = video_template();
-  avpipe::EncodeOptions options;
+  const erde::StreamInfo info = video_template();
+  erde::EncodeOptions options;
   options.codec = "definitely_not_a_codec";
 
-  auto encoder = avpipe::Encoder::open(info, options);
+  auto encoder = erde::Encoder::open(info, options);
   CHECK(!encoder.has_value());
-  CHECK(encoder.error().code == avpipe::Code::unsupported);
+  CHECK(encoder.error().code == erde::Code::unsupported);
 }
 
 TEST_CASE(hardware_encoder_fails_gracefully_without_a_device) {
-  const avpipe::StreamInfo info = video_template();
-  avpipe::EncodeOptions options;
+  const erde::StreamInfo info = video_template();
+  erde::EncodeOptions options;
   options.codec = "libx264";
   options.hw_device = "vaapi";
   options.hw_device_name = "/dev/dri/renderD128";
 
-  auto encoder = avpipe::Encoder::open(info, options);
+  auto encoder = erde::Encoder::open(info, options);
   if (encoder.has_value()) {
     // A machine that actually exposes the device: the context must be flagged as hardware.
     CHECK(encoder.value()->is_hardware());
   } else {
     // No device here: the failure must be classified and carry a message, not crash or assert.
-    CHECK(encoder.error().code == avpipe::Code::ffmpeg ||
-          encoder.error().code == avpipe::Code::unsupported);
+    CHECK(encoder.error().code == erde::Code::ffmpeg ||
+          encoder.error().code == erde::Code::unsupported);
     CHECK(!encoder.error().message.empty());
   }
 }

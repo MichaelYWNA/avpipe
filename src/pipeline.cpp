@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/pipeline.hpp>
+#include <erde/pipeline.hpp>
 
 #include <chrono>
 #include <cmath>
@@ -8,15 +8,15 @@
 #include <sstream>
 #include <utility>
 
-#include <avpipe/audio.hpp>
-#include <avpipe/decode.hpp>
-#include <avpipe/demux.hpp>
-#include <avpipe/filter.hpp>
-#include <avpipe/mux.hpp>
-#include <avpipe/scale.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/audio.hpp>
+#include <erde/decode.hpp>
+#include <erde/demux.hpp>
+#include <erde/filter.hpp>
+#include <erde/mux.hpp>
+#include <erde/scale.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
 namespace {
 
@@ -767,4 +767,4 @@ Expected<BenchReport> bench(const TranscodeRequest& request, int runs) {
   return report;
 }
 
-}  // namespace avpipe
+}  // namespace erde

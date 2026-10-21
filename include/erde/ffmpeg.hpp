@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_FFMPEG_HPP
-#define AVPIPE_FFMPEG_HPP
+#ifndef ERDE_FFMPEG_HPP
+#define ERDE_FFMPEG_HPP
 
 // Single place that pulls in the C headers of libav* inside `extern "C"`.
 extern "C" {
@@ -22,4 +22,4 @@ extern "C" {
 #include <libswscale/swscale.h>
 }
 
-#endif  // AVPIPE_FFMPEG_HPP
+#endif  // ERDE_FFMPEG_HPP

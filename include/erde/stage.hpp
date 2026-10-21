@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_STAGE_HPP
-#define AVPIPE_STAGE_HPP
+#ifndef ERDE_STAGE_HPP
+#define ERDE_STAGE_HPP
 
-#include <avpipe/error.hpp>
-#include <avpipe/media.hpp>
+#include <erde/error.hpp>
+#include <erde/media.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// A stage that produces compressed packets (demuxer, encoder, packet receiver).
 class PacketSource {
@@ -23,6 +23,6 @@ class FrameSource {
   virtual Expected<Frame> pull() = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_STAGE_HPP
+#endif  // ERDE_STAGE_HPP

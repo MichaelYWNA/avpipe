@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_PIPELINE_HPP
-#define AVPIPE_PIPELINE_HPP
+#ifndef ERDE_PIPELINE_HPP
+#define ERDE_PIPELINE_HPP
 
 #include <cstdint>
 #include <string>
 #include <vector>
 
-#include <avpipe/encode.hpp>
-#include <avpipe/error.hpp>
-#include <avpipe/media.hpp>
+#include <erde/encode.hpp>
+#include <erde/error.hpp>
+#include <erde/media.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// Counters collected while a pipeline runs. Every field is produced by the stage that owns the
 /// work, not estimated afterwards, so "frames in == frames out" is checkable.
@@ -109,6 +109,6 @@ Expected<ProbeReport> probe(const std::string& path);
 /// Runs `transcode()` `runs` times and reports the throughput of the whole chain.
 Expected<BenchReport> bench(const TranscodeRequest& request, int runs);
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_PIPELINE_HPP
+#endif  // ERDE_PIPELINE_HPP

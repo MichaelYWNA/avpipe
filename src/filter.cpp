@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/filter.hpp>
+#include <erde/filter.hpp>
 
 #include <cinttypes>
 #include <cstdio>
 
-namespace avpipe {
+namespace erde {
 
 Expected<std::unique_ptr<FilterSource>> FilterSource::open(FrameSource& source,
                                                           const std::string& description,
@@ -167,4 +167,4 @@ Expected<Frame> FilterSource::pull() {
   }
 }
 
-}  // namespace avpipe
+}  // namespace erde

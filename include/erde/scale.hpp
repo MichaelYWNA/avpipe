@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_SCALE_HPP
-#define AVPIPE_SCALE_HPP
+#ifndef ERDE_SCALE_HPP
+#define ERDE_SCALE_HPP
 
 #include <memory>
 
-#include <avpipe/media.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/media.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// A FrameSource that rescales/resamples the frames of another FrameSource with libswscale.
 ///
@@ -35,6 +35,6 @@ class ScalingSource : public FrameSource {
   int64_t converted_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_SCALE_HPP
+#endif  // ERDE_SCALE_HPP

@@ -1,6 +1,6 @@
 # 设计说明
 
-这份文档记录 `avpipe` 里几个"本可以另一种写法"的决定，以及做这些决定时踩到的实际问题。
+这份文档记录 `Erde` 里几个"本可以另一种写法"的决定，以及做这些决定时踩到的实际问题。
 面试里能被追问的正是这些地方。
 
 ## 1. 数据流：为什么 stage 是拉取式
@@ -39,7 +39,7 @@ class FrameSource  { virtual Expected<Frame>  pull() = 0; };
 "一个 packet 只出一个 frame"。对 1:1 的编解码成立，一旦有 B 帧重排或 `AV_CODEC_CAP_DELAY`
 就不成立。
 
-`avpipe` 里没有"保留最后一个"的决策点：`Decoder::pull()` 一次只返回一帧，其余留在解码器
+`Erde` 里没有"保留最后一个"的决策点：`Decoder::pull()` 一次只返回一帧，其余留在解码器
 里，下一拍继续取。`Encoder::push()` 在 `EAGAIN` 时排空内部队列再重试，也不丢。
 
 ## 2. 错误处理：不用异常，但也不返回裸 `int`
@@ -91,7 +91,7 @@ template <class T, class Deleter> class Ptr { /* move-only, .get(), .out(), .res
 
 ```
 [mpeg4 @ ...] Invalid pts (2) <= last (2)
-avpipe: ffmpeg[-1]: avcodec_send_frame: Operation not permitted
+erde: ffmpeg[-1]: avcodec_send_frame: Operation not permitted
 ```
 
 真正的结论不是"调个参数"，而是**这个管线没有 filter 图，就不该声称能做帧率转换**。所以现在：
@@ -217,7 +217,7 @@ if (auto drained = drain_locked(...); drained) {   // 有错？
 返回的 `Expected<T>` 没有值，`error().code` 却是 0，调用方于是报告一个 **消息为空的失败**：
 
 ```
-avpipe:  [code=0]
+erde:  [code=0]
 ```
 
 修法是不要在 `Expected<T>` 的返回路径上返回 `Status`，而是在 `Status` 上有错时才提前返回：

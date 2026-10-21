@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/config.hpp>
+#include <erde/config.hpp>
 
 #include <cerrno>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 
-namespace avpipe {
+namespace erde {
 
 namespace {
 
@@ -178,4 +178,4 @@ Expected<int64_t> parse_bit_rate(const std::string& text) {
   return value.value() * multiplier;
 }
 
-}  // namespace avpipe
+}  // namespace erde

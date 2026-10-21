@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_MEDIA_HPP
-#define AVPIPE_MEDIA_HPP
+#ifndef ERDE_MEDIA_HPP
+#define ERDE_MEDIA_HPP
 
 #include <string>
 
-#include <avpipe/error.hpp>
-#include <avpipe/ffmpeg.hpp>
-#include <avpipe/handle.hpp>
+#include <erde/error.hpp>
+#include <erde/ffmpeg.hpp>
+#include <erde/handle.hpp>
 
-namespace avpipe {
+namespace erde {
 
 using FramePtr = Ptr<AVFrame, free_via_pointer_to_pointer<AVFrame, av_frame_free>>;
 using PacketPtr = Ptr<AVPacket, free_via_pointer_to_pointer<AVPacket, av_packet_free>>;
@@ -88,6 +88,6 @@ std::string pixel_format_name(int format);
 /// Name of a sample format, or "none" when unknown.
 std::string sample_format_name(int format);
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_MEDIA_HPP
+#endif  // ERDE_MEDIA_HPP

@@ -7,21 +7,21 @@
 #include <filesystem>
 #include <string>
 
-#include <avpipe/encode.hpp>
-#include <avpipe/pipeline.hpp>
+#include <erde/encode.hpp>
+#include <erde/pipeline.hpp>
 
 namespace {
 
 std::filesystem::path temp_path(const std::string& name) {
-  const auto dir = std::filesystem::temp_directory_path() / "avpipe-tests";
+  const auto dir = std::filesystem::temp_directory_path() / "erde-tests";
   std::filesystem::create_directories(dir);
   const auto path = dir / name;
   std::filesystem::remove(path);
   return path;
 }
 
-avpipe::EncodeOptions video_options() {
-  avpipe::EncodeOptions options;
+erde::EncodeOptions video_options() {
+  erde::EncodeOptions options;
   options.codec = "mpeg4";
   options.bit_rate = 400'000;
   options.preset.clear();
@@ -37,7 +37,7 @@ struct StreamCounts {
   int64_t audio_packets = 0;
 };
 
-StreamCounts parse(const avpipe::ProbeReport& report) {
+StreamCounts parse(const erde::ProbeReport& report) {
   StreamCounts counts;
   for (const std::string& line : report.lines) {
     const std::size_t packets_at = line.find("packets=");
@@ -58,10 +58,10 @@ StreamCounts parse(const avpipe::ProbeReport& report) {
 }  // namespace
 
 TEST_CASE(generates_a_file_with_both_streams) {
-  avpipe::GenerateRequest request;
+  erde::GenerateRequest request;
   request.output = temp_path("av-gen.mp4").string();
   request.encode = video_options();
-  request.audio_encode = avpipe::default_audio_encode();
+  request.audio_encode = erde::default_audio_encode();
   request.with_audio = true;
   request.seconds = 1.0;
   request.width = 160;
@@ -69,7 +69,7 @@ TEST_CASE(generates_a_file_with_both_streams) {
   request.fps = 15;
   request.frames = 15;
 
-  auto stats = avpipe::generate(request);
+  auto stats = erde::generate(request);
   CHECK(stats.has_value());
   CHECK_EQ(stats.value().video_streams, 1);
   CHECK_EQ(stats.value().audio_streams, 1);
@@ -77,7 +77,7 @@ TEST_CASE(generates_a_file_with_both_streams) {
   CHECK(stats.value().audio_frames_encoded > 0);
   CHECK(stats.value().audio_packets_written > 0);
 
-  auto report = avpipe::probe(request.output);
+  auto report = erde::probe(request.output);
   CHECK(report.has_value());
   const StreamCounts counts = parse(report.value());
   CHECK_EQ(counts.video, 0);
@@ -88,26 +88,26 @@ TEST_CASE(generates_a_file_with_both_streams) {
 
 TEST_CASE(transcodes_both_streams_into_one_file) {
   const std::string source = temp_path("av-source.mp4").string();
-  avpipe::GenerateRequest gen;
+  erde::GenerateRequest gen;
   gen.output = source;
   gen.encode = video_options();
-  gen.audio_encode = avpipe::default_audio_encode();
+  gen.audio_encode = erde::default_audio_encode();
   gen.with_audio = true;
   gen.seconds = 1.0;
   gen.width = 160;
   gen.height = 120;
   gen.fps = 15;
   gen.frames = 15;
-  CHECK(avpipe::generate(gen).has_value());
+  CHECK(erde::generate(gen).has_value());
 
-  avpipe::TranscodeRequest request;
+  erde::TranscodeRequest request;
   request.input = source;
   request.output = temp_path("av-out.mp4").string();
   request.encode = video_options();
-  request.audio_encode = avpipe::default_audio_encode();
+  request.audio_encode = erde::default_audio_encode();
   request.audio_encode.bit_rate = 64'000;
 
-  auto stats = avpipe::transcode(request);
+  auto stats = erde::transcode(request);
   CHECK(stats.has_value());
   CHECK_EQ(stats.value().video_streams, 1);
   CHECK_EQ(stats.value().audio_streams, 1);
@@ -115,7 +115,7 @@ TEST_CASE(transcodes_both_streams_into_one_file) {
   CHECK(stats.value().audio_frames_encoded > 0);
   CHECK(stats.value().audio_packets_written > 0);
 
-  auto report = avpipe::probe(request.output);
+  auto report = erde::probe(request.output);
   CHECK(report.has_value());
   const StreamCounts counts = parse(report.value());
   CHECK_EQ(counts.video, 0);
@@ -129,7 +129,7 @@ TEST_CASE(transcodes_both_streams_into_one_file) {
 
 TEST_CASE(drops_audio_when_asked) {
   const std::string source = temp_path("av-source2.mp4").string();
-  avpipe::GenerateRequest gen;
+  erde::GenerateRequest gen;
   gen.output = source;
   gen.encode = video_options();
   gen.with_audio = true;
@@ -138,20 +138,20 @@ TEST_CASE(drops_audio_when_asked) {
   gen.height = 96;
   gen.fps = 15;
   gen.frames = 15;
-  CHECK(avpipe::generate(gen).has_value());
+  CHECK(erde::generate(gen).has_value());
 
-  avpipe::TranscodeRequest request;
+  erde::TranscodeRequest request;
   request.input = source;
   request.output = temp_path("av-videoonly.mp4").string();
   request.encode = video_options();
   request.include_audio = false;
 
-  auto stats = avpipe::transcode(request);
+  auto stats = erde::transcode(request);
   CHECK(stats.has_value());
   CHECK_EQ(stats.value().video_streams, 1);
   CHECK_EQ(stats.value().audio_streams, 0);
 
-  auto report = avpipe::probe(request.output);
+  auto report = erde::probe(request.output);
   CHECK(report.has_value());
   const StreamCounts counts = parse(report.value());
   CHECK_EQ(counts.video, 0);
@@ -160,30 +160,30 @@ TEST_CASE(drops_audio_when_asked) {
 
 TEST_CASE(audio_filter_changes_the_timeline) {
   const std::string source = temp_path("av-atempo-src.m4a").string();
-  avpipe::GenerateRequest gen;
+  erde::GenerateRequest gen;
   gen.output = source;
   gen.audio_only = true;
-  gen.audio_encode = avpipe::default_audio_encode();
+  gen.audio_encode = erde::default_audio_encode();
   gen.seconds = 1.0;
-  CHECK(avpipe::generate(gen).has_value());
+  CHECK(erde::generate(gen).has_value());
 
-  avpipe::AudioTranscodeRequest plain;
+  erde::AudioTranscodeRequest plain;
   plain.input = source;
   plain.output = temp_path("av-atempo-plain.m4a").string();
-  plain.encode = avpipe::default_audio_encode();
-  auto plain_stats = avpipe::transcode_audio(plain);
+  plain.encode = erde::default_audio_encode();
+  auto plain_stats = erde::transcode_audio(plain);
   CHECK(plain_stats.has_value());
 
-  avpipe::AudioTranscodeRequest fast;
+  erde::AudioTranscodeRequest fast;
   fast.input = source;
   fast.output = temp_path("av-atempo-fast.m4a").string();
-  fast.encode = avpipe::default_audio_encode();
+  fast.encode = erde::default_audio_encode();
   fast.filter = "atempo=2.0";  // plays twice as fast -> half the duration
-  auto fast_stats = avpipe::transcode_audio(fast);
+  auto fast_stats = erde::transcode_audio(fast);
   CHECK(fast_stats.has_value());
 
-  auto plain_report = avpipe::probe(plain.output);
-  auto fast_report = avpipe::probe(fast.output);
+  auto plain_report = erde::probe(plain.output);
+  auto fast_report = erde::probe(fast.output);
   CHECK(plain_report.has_value());
   CHECK(fast_report.has_value());
   CHECK(plain_report.value().duration_s > 0.8);
@@ -193,22 +193,22 @@ TEST_CASE(audio_filter_changes_the_timeline) {
 
 TEST_CASE(audio_filter_rejects_unknown_filter) {
   const std::string source = temp_path("av-badfilter-src.m4a").string();
-  avpipe::GenerateRequest gen;
+  erde::GenerateRequest gen;
   gen.output = source;
   gen.audio_only = true;
-  gen.audio_encode = avpipe::default_audio_encode();
+  gen.audio_encode = erde::default_audio_encode();
   gen.seconds = 0.5;
-  CHECK(avpipe::generate(gen).has_value());
+  CHECK(erde::generate(gen).has_value());
 
-  avpipe::AudioTranscodeRequest request;
+  erde::AudioTranscodeRequest request;
   request.input = source;
   request.output = temp_path("av-badfilter-out.m4a").string();
-  request.encode = avpipe::default_audio_encode();
+  request.encode = erde::default_audio_encode();
   request.filter = "no_such_audio_filter=1";
 
-  auto stats = avpipe::transcode_audio(request);
+  auto stats = erde::transcode_audio(request);
   CHECK(!stats.has_value());
-  CHECK(stats.error().code == avpipe::Code::ffmpeg);
+  CHECK(stats.error().code == erde::Code::ffmpeg);
 }
 
 TEST_MAIN()

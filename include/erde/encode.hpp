@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_ENCODE_HPP
-#define AVPIPE_ENCODE_HPP
+#ifndef ERDE_ENCODE_HPP
+#define ERDE_ENCODE_HPP
 
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <string>
 
-#include <avpipe/media.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/media.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
 struct EncodeOptions {
   std::string codec = "libx264";
@@ -94,6 +94,6 @@ class Encoder : public PacketSource {
   int64_t packets_out_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_ENCODE_HPP
+#endif  // ERDE_ENCODE_HPP

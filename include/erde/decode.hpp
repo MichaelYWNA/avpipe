@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_DECODE_HPP
-#define AVPIPE_DECODE_HPP
+#ifndef ERDE_DECODE_HPP
+#define ERDE_DECODE_HPP
 
 #include <memory>
 
-#include <avpipe/media.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/media.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// Turns packets from a PacketSource into frames.
 ///
@@ -37,6 +37,6 @@ class Decoder : public FrameSource {
   int64_t frames_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_DECODE_HPP
+#endif  // ERDE_DECODE_HPP

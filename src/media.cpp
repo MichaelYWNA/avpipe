@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
-#include <avpipe/media.hpp>
+#include <erde/media.hpp>
 
 #include <cerrno>
 #include <sstream>
 
-namespace avpipe {
+namespace erde {
 
 // ---------------------------------------------------------------------------
 // Error helpers
@@ -162,4 +162,4 @@ std::string sample_format_name(int format) {
   return name != nullptr ? name : "none";
 }
 
-}  // namespace avpipe
+}  // namespace erde

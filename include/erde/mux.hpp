@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_MUX_HPP
-#define AVPIPE_MUX_HPP
+#ifndef ERDE_MUX_HPP
+#define ERDE_MUX_HPP
 
 #include <memory>
 #include <string>
 #include <vector>
 
-#include <avpipe/media.hpp>
+#include <erde/media.hpp>
 
-namespace avpipe {
+namespace erde {
 
 /// Owns an *output* AVFormatContext, which libav frees through `avformat_free_context()` -
 /// not through `avformat_close_input()`, the deleter used for demuxers.
@@ -58,6 +58,6 @@ class Muxer {
   int64_t packets_written_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_MUX_HPP
+#endif  // ERDE_MUX_HPP

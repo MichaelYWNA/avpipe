@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: MIT
-#ifndef AVPIPE_AUDIO_HPP
-#define AVPIPE_AUDIO_HPP
+#ifndef ERDE_AUDIO_HPP
+#define ERDE_AUDIO_HPP
 
 #include <memory>
 
-#include <avpipe/media.hpp>
-#include <avpipe/stage.hpp>
+#include <erde/media.hpp>
+#include <erde/stage.hpp>
 
-namespace avpipe {
+namespace erde {
 
-/// Deterministic sine tone used by `avpipe gen --audio` and by the audio tests, so no audio file
+/// Deterministic sine tone used by `erde gen --audio` and by the audio tests, so no audio file
 /// has to be checked in.
 class ToneSource : public FrameSource {
  public:
@@ -81,6 +81,6 @@ class AudioSlicer : public FrameSource {
   int64_t frames_emitted_ = 0;
 };
 
-}  // namespace avpipe
+}  // namespace erde
 
-#endif  // AVPIPE_AUDIO_HPP
+#endif  // ERDE_AUDIO_HPP
