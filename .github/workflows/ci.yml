@@ -21,7 +21,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential clang cmake pkg-config \
-            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+            libavformat-dev libavcodec-dev libavutil-dev \
+            libswscale-dev libswresample-dev libavfilter-dev
 
       - name: Configure
         env:
@@ -37,7 +38,21 @@ jobs:
 
       - name: Smoke test the CLI
         run: |
+          set -eux
+          # video path
           ./build/avpipe gen /tmp/ci.mp4 --size 320x240 --frames 30 --codec mpeg4
           ./build/avpipe probe /tmp/ci.mp4
           ./build/avpipe transcode /tmp/ci.mp4 /tmp/ci-out.avi --size 160x120 --codec mpeg4
           ./build/avpipe bench /tmp/ci.mp4 /tmp/ci-bench.avi --codec mpeg4 --runs 2
+          # filter path: 30 frames at 15 fps must stay 15 frames
+          ./build/avpipe transcode /tmp/ci.mp4 /tmp/ci-fps.avi --filter 'fps=15' --fps 15 --codec mpeg4
+          # audio path
+          ./build/avpipe gen /tmp/ci-tone.m4a --audio --seconds 1 --rate 48000 --channels 2
+          ./build/avpipe transcode-audio /tmp/ci-tone.m4a /tmp/ci-tone-out.m4a --rate 44100 --channels 1
+          ./build/avpipe probe /tmp/ci-tone-out.m4a
+          # hardware path must fail cleanly on a runner without /dev/dri
+          if ./build/avpipe transcode /tmp/ci.mp4 /tmp/hw.mp4 --hw vaapi; then
+            echo "vaapi unexpectedly succeeded"; exit 1
+          else
+            echo "vaapi failed as expected (no device on the runner)"
+          fi
