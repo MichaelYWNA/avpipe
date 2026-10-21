@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [ gcc, clang ]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libav and build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang cmake pkg-config \
+            libavformat-dev libavcodec-dev libavutil-dev libswscale-dev
+
+      - name: Configure
+        env:
+          CC: ${{ matrix.compiler == 'clang' && 'clang' || 'gcc' }}
+          CXX: ${{ matrix.compiler == 'clang' && 'clang++' || 'g++' }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Smoke test the CLI
+        run: |
+          ./build/avpipe gen /tmp/ci.mp4 --size 320x240 --frames 30 --codec mpeg4
+          ./build/avpipe probe /tmp/ci.mp4
+          ./build/avpipe transcode /tmp/ci.mp4 /tmp/ci-out.avi --size 160x120 --codec mpeg4
+          ./build/avpipe bench /tmp/ci.mp4 /tmp/ci-bench.avi --codec mpeg4 --runs 2

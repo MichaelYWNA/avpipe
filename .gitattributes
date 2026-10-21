@@ -1,0 +1,5 @@
+# Keep LF on Windows checkouts: the shell/CI files here run on Linux.
+* text=auto eol=lf
+*.mp4 binary
+*.avi binary
+*.png binary
