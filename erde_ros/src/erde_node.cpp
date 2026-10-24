@@ -31,6 +31,10 @@ ErdeNode::ErdeNode()
   declare_parameter<int>("width", 0);
   declare_parameter<int>("height", 0);
   declare_parameter<std::string>("codec", "libx264");
+  // Hardware encoder selector: "" = software, "rkmpp" = Rockchip VPU (RK3566/RK3588),
+  // "vaapi"/"cuda" = x86 GPUs.
+  declare_parameter<std::string>("hw", "");
+  declare_parameter<std::string>("hw_device", "");
   declare_parameter<int>("bitrate", 2'000'000);
   declare_parameter<int>("gop", 12);
   declare_parameter<int>("fps", 30);
@@ -103,6 +107,8 @@ CallbackReturn ErdeNode::on_configure(const rclcpp_lifecycle::State& /*state*/) 
   options.bit_rate = get_parameter("bitrate").as_int();
   options.gop = get_parameter("gop").as_int();
   options.fps = get_parameter("fps").as_int();
+  options.hw_device = get_parameter("hw").as_string();
+  options.hw_device_name = get_parameter("hw_device").as_string();
 
   // The encoder is sized from the *stream*; when a scaler is in front, its geometry wins.
   // StreamInfo owns its AVCodecParameters through a move-only pointer, so it is built field by

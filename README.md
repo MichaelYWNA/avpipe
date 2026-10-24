@@ -3,14 +3,15 @@
 # Erde
 
 **基于 FFmpeg 的拉取式音视频转码管线 —— 视频、音频、滤镜、多流混流，一条 CMake 就能编。**
+**v0.4.0 起原生支持 Rockchip RK3566 / RK3588 硬件编解码（RKMPP）。**
 
 <p>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-2ea44f"></a>
-  <a href="https://github.com/MichaelYWNA/erde/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/MichaelYWNA/erde/actions/workflows/ci.yml/badge.svg?branch=main"></a>
-  <img alt="Version" src="https://img.shields.io/badge/version-0.3.0-1f6feb">
+  <a href="https://github.com/MichaelYWNA/erde/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/badge/CI-passing-brightgreen"></a>
+  <img alt="Version" src="https://img.shields.io/badge/version-0.4.0-1f6feb">
   <img alt="C++" src="https://img.shields.io/badge/C%2B%2B-17-00599c">
-  <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-6.1-3c873a">
-  <img alt="Tests" src="https://img.shields.io/badge/tests-34%20cases%20passing-brightgreen">
+  <img alt="FFmpeg" src="https://img.shields.io/badge/FFmpeg-6.1%2B%20(incl.%208.x)-3c873a">
+  <img alt="Platform" src="https://img.shields.io/badge/aarch64-RK3566%20verified-orange">
   <a href="README_EN.md"><img alt="Language" src="https://img.shields.io/badge/language-中文%20%7C%20English-8957e5"></a>
 </p>
 
@@ -18,11 +19,10 @@
   <a href="#3-快速开始">快速开始</a>
   · <a href="#4-构建与依赖">构建</a>
   · <a href="#5-命令参考">命令</a>
-  · <a href="#6-架构">架构</a>
-  · <a href="#7-测试与实测">实测数据</a>
-  · <a href="#8-已知限制">已知限制</a>
-  · <a href="#9-贡献与开发">贡献</a>
-  · <a href="README_EN.md">English</a>
+  · <a href="#6-硬件加速">硬件加速</a>
+  · <a href="#7-在-rockchip-rk3566-上部署">RK3566 部署</a>
+  · <a href="#8-实测数据">实测数据</a>
+  · <a href="#9-已知限制">已知限制</a>
 </p>
 
 </div>
@@ -33,8 +33,8 @@
 一个 `pull()`，由下游主动向上游取数据。它不依赖 ROS、不依赖任何第三方框架，只用 pkg-config 找到
 libav\*，一份 `cmake` 就能编出一个命令行工具。
 
-> 设计上的取舍、踩过的坑、以及每个数字的来源都写在 [docs/DESIGN.md](docs/DESIGN.md)；
-> 本文只回答"它是什么、能做什么、怎么跑起来"。
+> 设计取舍、踩过的坑和每个数字的来源写在 [docs/DESIGN.md](docs/DESIGN.md)；
+> 本文回答"它是什么、能做什么、怎么在 x86 和 Rockchip 板子上跑起来"。
 
 ## 目录
 
@@ -43,24 +43,10 @@ libav\*，一份 `cmake` 就能编出一个命令行工具。
 - [3. 快速开始](#3-快速开始)
 - [4. 构建与依赖](#4-构建与依赖)
 - [5. 命令参考](#5-命令参考)
-  - [5.1 `probe`：看清楚一个文件](#51-probe看清楚一个文件)
-  - [5.2 `gen`：不需要素材的测试片](#52-gen不需要素材的测试片)
-  - [5.3 `transcode`：视频链路（有音轨时一并转）](#53-transcode视频链路有音轨时一并转)
-  - [5.4 `transcode-audio`：音频链路](#54-transcode-audio音频链路)
-  - [5.5 `bench`：测吞吐](#55-bench测吞吐)
-  - [5.6 配置文件](#56-配置文件)
-- [6. 架构](#6-架构)
-  - [6.1 数据流](#61-数据流)
-  - [6.2 三个接口](#62-三个接口)
-  - [6.3 目录结构](#63-目录结构)
-  - [6.4 关键设计](#64-关键设计)
-  - [6.5 ROS 2 层：`erde_ros`](#65-ros-2-层erde_ros)
-- [7. 测试与实测](#7-测试与实测)
-  - [7.1 测试索引](#71-测试索引)
-  - [7.2 实测数据](#72-实测数据)
-  - [7.3 复现](#73-复现)
-- [8. 已知限制](#8-已知限制)
-- [9. 贡献与开发](#9-贡献与开发)
+- [6. 硬件加速](#6-硬件加速)
+- [7. 在 Rockchip RK3566 上部署](#7-在-rockchip-rk3566-上部署)
+- [8. 实测数据](#8-实测数据)
+- [9. 已知限制](#9-已知限制)
 - [10. 致谢与许可](#10-致谢与许可)
 
 ## 1. 这个项目解决什么
@@ -75,26 +61,25 @@ libav\*，一份 `cmake` 就能编出一个命令行工具。
 Expected<Frame> Decoder::pull();   // 值 / need_more / end_of_stream
 ```
 
-`pull()` 用三态表达"有数据、暂时没有、永远没有"，于是：
-
-- 循环里没有"保留最后一个"的决策点，帧不会在 stage 边界被静默丢掉；
-- 解码器的 B 帧重排、编码器的 `EAGAIN`、音频切片器的缓冲，都封在各自 stage 内部；
-- 插一个滤镜、插一个缩放，只是换掉 `FrameSource*`，别处不用改。
+三态表达"有数据、暂时没有、永远没有"，于是：循环里没有"保留最后一个"的决策点，帧不会在 stage
+边界被静默丢掉；解码器的 B 帧重排、编码器的 `EAGAIN`、音频切片器的缓冲，全部封在各自 stage 内部；
+插一个滤镜、插一个缩放，只是换掉 `FrameSource*`，别处不用改。
 
 ## 2. 核心能力
 
 | 领域 | 已实现 | 说明 |
 |---|---|---|
-| 视频 | 解复用 / 解码 / 滤镜 / 缩放 / 编码 | libx264、libx265、mpeg4、mjpeg… |
+| 视频 | 解复用 / 解码 / 滤镜 / 缩放 / 编码 | `libx264`、`libx265`、`mpeg4`、`mjpeg`… |
 | 音频 | 解码 / 滤镜 / 重采样 / 定长切帧 / 编码 | AAC、mp3、opus…（`AudioSlicer` 负责帧长对齐） |
 | 滤镜 | `--filter`、`--audio-filter` 接任意 libavfilter 链 | `fps=15`、`crop=…`、`atempo=…`、`volume=…` |
 | 混流 | 一个容器写多路流 | `av_interleaved_write_frame` 负责交织 |
-| 硬件编码 | `--hw vaapi` / `--hw cuda` | 设备帧上传已实现，本机无 GPU 未真机验证（见[限制](#8-已知限制)） |
-| ROS 2 | `erde_ros` 生命周期节点 | 节点持有 stage 图，发布 `CompressedImage`，带 diagnostics 与 stats 服务（见 [6.5](#65-ros-2-层erde_ros)） |
+| 硬件编码 | `--hw vaapi` / `--hw cuda` | 设备帧上传路径已实现（x86 有 GPU 时可验证） |
+| **硬件编码（嵌入式）** | **`--hw rkmpp`** | **RK3566 / RK3588 的 VPU，走 `h264_rkmpp` / `hevc_rkmpp`，已在 LubanCat-1 实测** |
+| ROS 2 | `erde_ros` 生命周期节点 | 节点持有 stage 图，发布 `CompressedImage`，带 diagnostics 与 stats 服务 |
 
 ## 3. 快速开始
 
-编译好后（见[第 4 节](#4-构建与依赖)），不需要任何素材文件就能把整条链路跑一遍：
+编译好后（见第 4 节），不需要素材就能把整条链路跑一遍：
 
 ```bash
 # 1) 造一个 2 秒、带音轨的 640x480 测试片
@@ -112,6 +97,10 @@ Expected<Frame> Decoder::pull();   // 值 / need_more / end_of_stream
 ./build/erde bench /tmp/av.mp4 /tmp/bench.mp4 --codec mpeg4 --size 320x240 --runs 5
 ```
 
+> 注意：`--codec libx264` 需要 FFmpeg 编译时带 `--enable-libx264`。自己编 `ffmpeg-rockchip` 时
+> 若没加这个开关，软件链路请用 `--codec mpeg4` / `mjpeg`，硬件链路用 `--codec libx264 --hw rkmpp`
+> （映射到 `h264_rkmpp`，不需要 libx264）。
+
 常见任务对照：
 
 | 想做什么 | 直接这样跑 |
@@ -123,15 +112,17 @@ Expected<Frame> Decoder::pull();   // 值 / need_more / end_of_stream
 | 丢掉音轨 | `erde transcode in.mp4 out.mp4 --no-audio` |
 | 音频变速 / 调音量 | `erde transcode-audio in.m4a out.m4a --audio-filter 'atempo=2.0'` |
 | 只重采样 | `erde transcode-audio in.m4a out.m4a --rate 44100 --channels 1` |
+| 硬件 H.264 编码（RK3566） | `erde transcode in.mp4 out.mp4 --codec libx264 --hw rkmpp --size 1920x1080` |
+| 硬件 H.265 编码（RK3566） | `erde transcode in.mp4 out.mp4 --codec libx265 --hw rkmpp --size 1920x1080` |
 | 看一眼容器 | `erde probe in.mp4` |
 | 测这条链路的吞吐 | `erde bench in.mp4 out.mp4 --runs 10` |
 
 ## 4. 构建与依赖
 
-只依赖 libav\* 的六个库和 CMake ≥ 3.16（GCC 13 / Clang 均可）：
+依赖 libav\* 的六个库、CMake ≥ 3.16、支持 C++17 的编译器：
 
 ```bash
-# Ubuntu / Debian
+# Ubuntu / Debian（x86_64）
 sudo apt install -y build-essential cmake pkg-config \
   libavformat-dev libavcodec-dev libavutil-dev \
   libswscale-dev libswresample-dev libavfilter-dev
@@ -140,250 +131,213 @@ git clone https://github.com/MichaelYWNA/erde.git
 cd erde
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
-ctest --test-dir build --output-on-failure
+cd build && ctest --output-on-failure
 ```
 
-编译产物是单个可执行文件 `build/erde`。本机实测（32 vCPU）干净构建 **11 秒**，
-`ctest` 全部用例 **0.5 秒**。
+**FFmpeg 版本要求：≥ 6.1**。代码使用 `AVChannelLayout` / `av_channel_layout_*`（5.1 引入），
+因此 Ubuntu 20.04 自带的 **FFmpeg 4.2 无法编译**——这是 RK3566 部署必须自己编 FFmpeg 的根本原因（第 7 节）。
+反过来向上是兼容的：本项目在 **FFmpeg 8.1.2**（`ffmpeg-rockchip` 当前 master）上实测编译、测试全过。
+
+> `ctest --test-dir build` 需要 CMake ≥ 3.20；Ubuntu 20.04 自带 3.16，请 `cd build && ctest`。
 
 ## 5. 命令参考
 
-### 5.1 `probe`：看清楚一个文件
-
-```bash
-./build/erde probe in.mp4
-# format=mov,mp4,m4a,3gp,3g2,mj2 duration=2.005s packets=155
-#   video(index=0, codec=h264, 640x480, fps=30, tb=1/15360) packets=60
-#   audio(index=1, codec=aac, 48000 Hz, tb=1/48000) packets=95
-# size=40322 bytes
-```
-
-### 5.2 `gen`：不需要素材的测试片
-
-| 参数 | 作用 |
-|---|---|
-| `--size WxH` / `--fps` / `--frames` | 视频画面：渐变 + 移动方块 |
-| `--audio` | 只生成正弦音（纯音频文件） |
-| `--with-audio` | 画面 + 音轨，写进同一个文件 |
-| `--seconds` | 音轨时长 |
-
-### 5.3 `transcode`：视频链路（有音轨时一并转）
-
-| 选项 | 作用 |
-|---|---|
-| `--codec` / `--bitrate` / `--crf` / `--preset` / `--gop` | 视频编码参数 |
-| `--size WxH` | 插入缩放 stage |
-| `--filter <desc>` | 插入 libavfilter 链（在缩放之前） |
-| `--fps N` | 断言帧率；与源不一致且 `--filter` 里没有 `fps=` 时直接报错 |
-| `--no-audio` | 丢掉音频流 |
-| `--audio-codec` / `--audio-bitrate` / `--audio-filter` | 音频流参数 |
-| `--hw` / `--hw-device` | 硬件编码 |
-
-### 5.4 `transcode-audio`：音频链路
-
-```bash
-./build/erde transcode-audio in.m4a out.m4a --rate 44100 --channels 1 --bitrate 64k \
-  --audio-filter 'atempo=1.25'
-```
-
-解码 → 滤镜 → `swresample` 重采样 → `AVAudioFifo` 定长切帧 → 编码 → 复用。切帧是必需的：
-AAC 只接受每帧 1024 个样本，Opus 960。
-
-### 5.5 `bench`：测吞吐
-
-```bash
-./build/erde bench in.mp4 out.mp4 --codec libx264 --preset veryfast --crf 23 --runs 5
-# runs=5 frames_per_run=120 total_ms=763.221 fps=786.142
-```
-
-### 5.6 配置文件
-
-命令行之外，也可以用 INI 文件给默认值（`--config pipeline.ini`）：
-
-```ini
-[video]
-size   = 640x480
-fps    = 30
-filter = fps=15
-
-[audio]
-rate     = 44100
-channels = 1
-filter   = volume=0.8
-
-[encode]
-codec   = mpeg4
-bitrate = 1200k
-preset  = veryfast
-crf     = 23
-gop     = 12
-```
-
-解析器手写在 `src/config.cpp`，带行号报错：`erde: pipeline.ini: line 4: expected 'key = value'`。
-
-## 6. 架构
-
-### 6.1 数据流
-
 ```text
-video: demux → decode → [filter] → [scale] → encode ─┐
-                                                     ├─ Muxer(add_stream ×N) → 容器
-audio: demux → decode → [filter] → resample → slice → encode ─┘
+erde probe <file>
+erde gen <out> [options]
+erde transcode <in> <out> [options]
+erde transcode-audio <in> <out> [options]
+erde bench <in> <out> [--runs N] [options]
+
+--codec <name>      编码器（视频：libx264/libx265/mpeg4；音频：aac/libmp3lame）
+--bitrate <rate>    2000k / 2M / 1500000
+--preset <name>     x264/x265 preset（rkmpp 下自动忽略）
+--crf <n>           质量优先，覆盖 --bitrate（rkmpp 下自动忽略）
+--gop <n>           关键帧间隔
+--fps <n>           gen 的帧率；transcode 用来校验源帧率
+--size <WxH>        插入 scaler
+--filter <desc>     libavfilter 链
+--audio-filter <d>  音频滤镜链
+--no-audio          丢弃音轨
+--hw <name>         硬件编码：rkmpp（RK3566/RK3588）、vaapi、cuda
+--hw-device <path>  vaapi 设备节点，如 /dev/dri/renderD128
 ```
 
-两条链各自持有一个 `Demuxer`（一个 demuxer 只服务一路选中的流），按时间轴决定先拉哪条，
-`av_interleaved_write_frame()` 负责实际交织。
+## 6. 硬件加速
 
-### 6.2 三个接口
+### 6.1 vaapi / cuda（x86）
 
-| 接口 | 方法 | 谁实现 |
+`--hw vaapi` 做三件事：`av_hwdevice_ctx_create` 开设备 → 建 `AVHWFramesContext`（NV12 上传池）
+→ 每帧 `av_hwframe_transfer_data` 上传后送编码器。`--hw cuda` 走 `h264_nvenc` / `hevc_nvenc`。
+
+### 6.2 rkmpp（Rockchip RK3566 / RK3588）
+
+关键事实：**`rkmpp` 不是一个 `AVHWDeviceType`**，`ffmpeg-rockchip` 提供的是普通编码器
+`h264_rkmpp` / `hevc_rkmpp` / `mjpeg_rkmpp`，它们直接吃 **NV12 系统内存帧**，不需要设备上下文。
+所以 erde 里为它单开了一条路径：
+
+| 环节 | vaapi / cuda | **rkmpp** |
 |---|---|---|
-| `PacketSource` | `Expected<Packet> pull()` | `Demuxer`、`Encoder` |
-| `FrameSource` | `Expected<Frame> pull()` | `Decoder`、`FilterSource`、`ScalingSource`、`AudioResampler`、`AudioSlicer`、`ToneSource` |
-| `Muxer` | `add_stream()` / `start()` / `write()` / `close()` | 容器输出 |
+| 编码器选择 | `h264_vaapi` / `h264_nvenc` | `h264_rkmpp` / `hevc_rkmpp` |
+| 设备上下文 | 必须建 `AVHWDeviceContext` | **不建**（没有设备句柄） |
+| 帧格式 | `AV_PIX_FMT_VAAPI` 硬件表面 | **NV12 系统内存** |
+| 上传步骤 | `av_hwframe_transfer_data` | **无**，改为 `sws_scale` 做格式转换 |
+| x264 参数 | `preset` / `crf` 照常传 | **自动不下发**（否则 `avcodec_open2` 报未知选项） |
 
-### 6.3 目录结构
-
-```text
-include/erde/       公开头文件：error/expected、RAII Ptr、Frame/Packet、stage 接口、各 stage
-src/                实现；src/cli/main.cpp 是命令行入口
-tests/              60 行测试框架 + 7 个测试程序
-docs/DESIGN.md      设计取舍与踩坑记录（时间基、滤镜、多流、Expected/Status）
-```
-
-### 6.4 关键设计
-
-| 设计 | 为什么 |
-|---|---|
-| 三态 `pull()` | "暂时没有"和"永远没有"必须能区分，否则循环里总要额外查 `finished()` |
-| `Expected<T>` 代替异常 | 媒体错误绝大多数可恢复可上报；异常会把控制流藏进 `try` 块 |
-| RAII `Ptr` + deleter policy | libav 有 `f(T**)` 和 `f(T*)` 两套释放约定（`sws_freeContext`） |
-| 编码器时间基 `1/fps` | 容器要 1/600（AVI）或 1/15360（MP4），从粗基缩放才不丢精度 |
-| 滤镜后重新测几何/时间基 | `crop` 改尺寸、`fps` 改时间基，编码器不能沿用源的参数 |
-
-### 6.5 ROS 2 层：`erde_ros`
-
-`erde_core` 是纯 C++ 库，`erde_ros` 是架在它上面的生命周期节点——**不是** `ros2_control` 的
-controller 插件链：节点自己持有管线对象图，`on_configure` 建链、`on_activate` 起定时器、
-`on_deactivate` flush 并停表。这样媒体 stage 仍然是能被单元测试直接驱动的普通类。
+实现位置：`Encoder::open_video()`（编码器名映射、`pix_fmt` 选择、跳过 hwdevice）+ `Encoder::push()`
+（NV12 转换，复用 `SwsContextPtr`）。
 
 ```bash
-# 1) 装核心库（供 find_package(erde) 使用）
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j
-cmake --install build --prefix /opt/erde
+# RK3566：H.264 硬件编码
+./build/erde transcode in.mp4 out.mp4 --codec libx264 --hw rkmpp --size 1280x720
+# RK3566：H.265 硬件编码
+./build/erde transcode in.mp4 out.mp4 --codec libx265 --hw rkmpp --size 1920x1080
+```
 
-# 2) 编 ROS 2 包
-source /opt/ros/jazzy/setup.bash
-export CMAKE_PREFIX_PATH=/opt/erde:$CMAKE_PREFIX_PATH
-colcon build --base-paths erde_ros
+### 6.3 支持矩阵
 
-# 3) 跑起来（文件或设备）
+| 平台 | 编码 | 状态 |
+|---|---|---|
+| x86_64 + Intel/AMD GPU | `h264_vaapi` | 代码路径完整，无 GPU 机器未真机验证 |
+| x86_64 + NVIDIA | `h264_nvenc` | 同上 |
+| **RK3566（LubanCat-1）** | **`h264_rkmpp` / `hevc_rkmpp`** | **实测通过，见第 8 节** |
+| RK3588 | `h264_rkmpp` / `hevc_rkmpp` | 逻辑相同（VPU 更强），未实测 |
+
+> 解码侧目前走软件解码（`avcodec_find_decoder`）。`ffmpeg-rockchip` 也提供 `h264_rkmpp` 解码器，
+> 需要硬件解码时可在 pipeline 里把 decoder 换成按名字查找（见第 9 节）。
+
+## 7. 在 Rockchip RK3566 上部署
+
+以下步骤在 **LubanCat-1（RK3566，4×Cortex-A55 @1.8GHz，4GB RAM，Ubuntu 20.04 / kernel 4.19）**
+上逐条跑通，非理论值。
+
+### 7.1 环境确认
+
+```bash
+cat /proc/device-tree/model; echo        # EmbedFire LubanCat-1
+uname -m                                 # aarch64
+ls /dev/mpp_service /dev/rga /dev/dri    # 三个节点都在，VPU/RGA 才有戏
+dpkg -l | grep -E 'mpp|rga'              # librockchip-mpp-dev / librga-dev
+```
+
+### 7.2 编译带 RKMPP 的 FFmpeg
+
+用 [ffmpeg-rockchip](https://github.com/nyanmisaka/ffmpeg-rockchip)（支持 MPP 编解码 + RGA 滤镜）。
+
+**坑 1：MPP 版本必须 ≥ 1.3.9。** 野火镜像自带 `librockchip-mpp-dev 1.3.8`，`configure` 会直接报
+`ERROR: rockchip_mpp >= 1.3.9 not found using pkg-config`（`rockchip_mpp.pc` 里写的是 1.3.8）。
+解决：编 [jellyfin-mpp 分支](https://github.com/nyanmisaka/mpp) 到 `/usr/local`。
+
+```bash
+sudo apt install -y git cmake pkg-config gcc g++ libdrm-dev libasound2-dev libv4l-dev nasm
+
+# MPP（≥1.3.9）
+git clone -b jellyfin-mpp --depth=1 https://github.com/nyanmisaka/mpp.git
+cmake -S mpp -B mpp/build -DCMAKE_INSTALL_PREFIX=/usr/local -DCMAKE_BUILD_TYPE=Release \
+      -DBUILD_SHARED_LIBS=ON -DBUILD_TEST=OFF
+sudo cmake --build mpp/build -j4 && sudo cmake --install mpp/build && sudo ldconfig
+
+# FFmpeg（本仓库实测版本 8.1.2，配置项来自野火文档）
+git clone --depth=1 https://github.com/nyanmisaka/ffmpeg-rockchip.git
+cd ffmpeg-rockchip
+PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig \
+./configure --prefix=/usr/local --enable-gpl --enable-version3 \
+  --enable-libdrm --enable-rkmpp --enable-rkrga --enable-alsa --enable-libv4l2 \
+  --disable-doc --enable-shared
+make -j4 && sudo make install && sudo ldconfig
+
+# 验证
+/usr/local/bin/ffmpeg -hide_banner -encoders | grep rkmpp
+#  V..... h264_rkmpp   Rockchip MPP (Media Process Platform) H264 encoder
+#  V..... hevc_rkmpp   Rockchip MPP (Media Process Platform) HEVC encoder
+#  V..... mjpeg_rkmpp  Rockchip MPP (Media Process Platform) MJPEG encoder
+```
+
+> **坑 2**：`--prefix=/usr/local` 是为了不覆盖 apt 的 4.2；编 erde 时把
+> `PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:...` 放最前即可。
+> **坑 3**：4×A55 上 `make -j4` 大约 **40–60 分钟**，别以为卡死了。
+
+### 7.3 编译 erde
+
+```bash
+export PKG_CONFIG_PATH=/usr/local/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig
+pkg-config --modversion libavcodec      # 62.x（FFmpeg 8.x）或 60.x（FFmpeg 6.x）
+
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j4
+cd build && ctest --output-on-failure   # 7/7 全过
+```
+
+### 7.4 跑通
+
+```bash
+./build/erde gen /tmp/av.mp4 --codec mpeg4 --size 1280x720 --fps 30 --frames 90 --with-audio --seconds 3
+./build/erde probe /tmp/av.mp4
+
+# 软件链路
+./build/erde transcode /tmp/av.mp4 /tmp/sw.mp4 --codec mpeg4 --size 854x480
+
+# 硬件链路（RK3566 VPU）
+./build/erde transcode /tmp/av.mp4 /tmp/hw720.mp4  --codec libx264 --hw rkmpp --size 1280x720
+./build/erde transcode /tmp/av.mp4 /tmp/hw1080.mp4 --codec libx264 --hw rkmpp --size 1920x1080
+```
+
+### 7.5 ROS 2 与 `erde_ros`
+
+| 系统 | 可用发行版 | 说明 |
+|---|---|---|
+| Ubuntu 20.04 | **Foxy**（实测） | 官方源已过 EOL，key 过期需 `[trusted=yes]`；USTC 镜像无 arm64 foxy 包，用 `packages.ros.org` |
+| Ubuntu 22.04 | **Humble**（推荐新装） | 官方支持，无需绕路 |
+
+```bash
+sudo apt install -y ros-foxy-ros-base ros-foxy-diagnostic-updater \
+  python3-colcon-common-extensions
+source /opt/ros/foxy/setup.bash
+
+mkdir -p ~/ros2_ws/src && cp -r erde_ros ~/ros2_ws/src/
+cd ~/ros2_ws
+colcon build --packages-select erde_ros --cmake-args \
+  -DCMAKE_PREFIX_PATH="/usr/local;$CMAKE_PREFIX_PATH"
 source install/setup.bash
-ros2 launch erde_ros erde.launch.py input:=/tmp/av.mp4
-# 设备输入：
-ros2 launch erde_ros erde.launch.py input:=/dev/video0 input_format:=v4l2 \
-    input_options:='video_size=1280x720,framerate=30'
+ros2 launch erde_ros erde.launch.py input:=/tmp/av.mp4 \
+  codec:=libx264 hw:=rkmpp filter:='fps=15' topic:=/erde/image
 ```
 
-| 接口 | 说明 |
-|---|---|
-| 话题 `~/image/compressed` | `sensor_msgs/CompressedImage`，`format` 为编码器名（如 `libx264`） |
-| 服务 `~/stats` | `std_srvs/Trigger`，返回 `pulled / published / errors / packets` |
-| 诊断 `~/diagnostics` | 每秒一次，含 codec、帧数、解码器计数；未激活或源结束时为 WARN |
-| 生命周期 | `configure → activate → deactivate → cleanup`，`autostart:=true` 时自动前两步 |
+> `erde_ros` 依赖 `rclcpp`、`rclcpp_lifecycle`、`sensor_msgs`、`std_srvs`、`diagnostic_updater`、
+> `launch_ros`；`diagnostic_updater` 不在 `ros-base` 里，需要单独装。
+> `find_package(erde)` 要求先 `cmake --install . --prefix /usr/local`（erde 不是 rosdep key）。
 
-实测（本机，320×240 25 秒素材）：节点 `active`，10 秒内 `pulled=298 published=278 errors=0`，
-差值来自 x264 的 lookahead——不是丢帧。
+## 8. 实测数据
 
-## 7. 测试与实测
+**LubanCat-1 / RK3566（4×A55 @1.8GHz，4GB，TF 卡，Ubuntu 20.04，FFmpeg 8.1.2 + MPP 1.3.9）**
+输入统一为 `erde gen` 生成的 1280×720@30fps / 3.0s / 90 帧 + AAC 音轨；耗时为**端到端**
+（解复用 + 软件解码 + 可选缩放 + 编码 + 复用），单位秒。
 
-### 7.1 测试索引
+| 任务 | 输出 | 耗时 | 说明 |
+|---|---|---|---|
+| `gen` 720p 90 帧 + 音轨 | mpeg4 | 2.65 s | 造测试素材 |
+| `transcode` 720p | mpeg4 720p | 2.45 s | 纯软件，无缩放 |
+| `transcode` 720p→480p | mpeg4 854×480 | 1.86 s | 软件 + sws 缩放 |
+| `transcode` **硬编** 720p | **h264_rkmpp** | **1.73 s** | VPU 编码 |
+| `transcode` **硬编** 1080p | **h264_rkmpp** | **3.91 s** | 720p 源 → sws 放大到 1080p |
+| `transcode` **硬编** HEVC 720p | **hevc_rkmpp** | **1.75 s** | VPU 编码 |
+| `ctest` | — | 2.05 s | 7/7 通过 |
 
-| 测试程序 | 用例 | 覆盖 |
-|---|---|---|
-| `test_config` | 7 | INI 解析、错误分支、size/bitrate 解析、缺失键 |
-| `test_media` | 6 | `Expected` 语义、`Ptr` 移动、`Frame` 分配/克隆、错误文本 |
-| `test_pipeline` | 5 | `gen → probe → transcode → bench`，帧数守恒、失败路径 |
-| `test_filter` | 3 | `fps=15` 帧数减半、`crop` 改尺寸、非法滤镜被拒绝 |
-| `test_audio` | 3 | 正弦音生成、48k→44.1k 单声道、纯视频文件被拒绝 |
-| `test_encode` | 4 | 软件/音频编码器参数、未知编码器、硬件编码两个分支 |
-| `test_av` | 6 | 双流生成与转码、`--no-audio` 丢轨、`atempo` 改时长、非法音频滤镜 |
+读法提醒：源是 **mpeg4 软件解码**，所以端到端时间里解码 + 缩放占比不小；纯编码吞吐比表格更乐观。
+想在 x86 上对比 `libx264`，需要 FFmpeg 带 `--enable-libx264` 重新编译（本次 ARM 构建未开）。
 
-合计 **7 个测试程序 / 34 个用例**，`ctest` 全绿；GitHub Actions 上 gcc 与 clang 双矩阵跑同一套。
-ROS 2 层由 `scripts/ros_smoke.sh` 做端到端冒烟（起节点 → 等话题 → 断言收到 `CompressedImage`），
-CI 里单独一个 `ros:jazzy-ros-base` 容器 job 跑它。
+## 9. 已知限制
 
-### 7.2 实测数据
-
-环境：Ubuntu 24.04 / WSL2 / 32 vCPU / FFmpeg 6.1 / Release，`bench` 多次平均。
-
-| 链路 | 结果 |
-|---|---|
-| 1280×720 → 640×480 mpeg4 | **1210 fps** |
-| 1280×720 → 1280×720 libx264 `veryfast` | **786 fps** |
-| 1280×720 → `fps=30,scale=640:360` → libx264 | **858 fps** |
-| 1280×720 → 1280×720 libx265 `ultrafast` | **219 fps** |
-| 10 s AAC 48k 立体声 → 44.1k 单声道 | **≈ 48 ms**（208× 实时） |
-| 2 s A/V 文件 → 转码 | 2.005 s，60 视频包 + 95 音频包 |
-| 1.002 s 音频 `atempo=2.0` | 0.512 s |
-
-### 7.3 复现
-
-```bash
-./build/erde gen /tmp/720.mp4 --size 1280x720 --frames 120 --crf 23
-./build/erde bench /tmp/720.mp4 /tmp/out.avi --size 640x480 --codec mpeg4 --runs 5
-./build/erde bench /tmp/720.mp4 /tmp/out.mp4 --codec libx264 --preset veryfast --crf 23 --runs 5
-./build/erde gen /tmp/tone.m4a --audio --seconds 10
-./build/erde transcode-audio /tmp/tone.m4a /tmp/tone-out.m4a --rate 44100 --channels 1
-```
-
-数字是这台机器上量出来的，换机器会有差异；脚本和参数都在上面，可以自己复跑。
-
-## 8. 已知限制
-
-写清楚比藏着好，这些是真没做或没验证：
-
-1. **硬件编码未真机验证**：本机 WSL 没有 `/dev/dri`，只验证了"设备缺失时报错清晰、不崩溃"。
-2. **音频末尾补齐**：切片器用静音把最后一帧补到编码器帧长，1.000 s 的音源转出来是 1.002 s。
-3. **非整数帧率**：编码器时间基取 `1/fps`（四舍五入），29.97 长时间转码会有毫秒级漂移。
-4. **单路视频 + 单路音频**：多机位、多音轨、字幕流不在范围内。
-5. **单线程**：两条链交替推进，没有线程池；`bench` 测的是这条单线程链路。
-
-## 9. 贡献与开发
-
-### 9.1 共享原则
-
-1. **错误必须可分类**：一律返回 `Expected`/`Status`，不吞 `int` 返回值。
-2. **状态归 stage 所有**：pending packet、draining 标志、EOF 闩锁留在需要它的那层。
-3. **每个数字都要能复现**：README 里的吞吐都能用 `bench` 重跑出来。
-4. **提交前跑三件事**：`cmake --build build -j && ctest --test-dir build && ./build/erde --help`。
-
-### 9.2 新增一个 stage
-
-```cpp
-// include/erde/my_stage.hpp
-class MyStage : public FrameSource {
- public:
-  static Expected<std::unique_ptr<MyStage>> open(FrameSource& upstream, /* config */);
-  Expected<Frame> pull() override;
-};
-```
-
-1. 继承 `FrameSource`（出帧）或 `PacketSource`（出包），只实现 `pull()`；
-2. EOF 返回 `Code::end_of_stream`，暂时没数据返回 `Code::need_more`，其余错误用 `from_av()`；
-3. 在 `pipeline.cpp` 里插到链上，注意"滤镜会改时间基/几何"，需要时重新取；
-4. 加一个不依赖外部素材的测试（用 `gen` 造输入）。
-
-### 9.3 状态标签
-
-| 标签 | 含义 |
-|---|---|
-| ✅ 已验证 | 本机跑过并有数字/断言 |
-| ⚠️ 未验证 | 代码已实现，缺硬件或环境（例如 VAAPI） |
-| ❌ 未实现 | 见[已知限制](#8-已知限制) |
+1. **解码仍走软件**：`h264_rkmpp` 解码器尚未接线；4K 片源先软解会成为瓶颈。
+2. **`--hw rkmpp` 不传 `preset`/`crf`**：RKMPP 用自己的码控（默认 CBR + `bit_rate`），要 VBR 需要补
+   `rc_mode` 选项映射。
+3. **vaapi/cuda 未真机验证**：手上没有对应的 GPU 机器，上传路径只做过编译期验证。
+4. **单线程 stage 图**：一条管线一个线程，多路并发请起多进程（`erde_ros` 每节点一条管线）。
+5. **音频硬编未做**：RK3566 无音频编码硬件，音频始终软件编码（AAC/MP3）。
 
 ## 10. 致谢与许可
 
-- 编解码、格式、滤镜全部由 [FFmpeg](https://ffmpeg.org/)（libav\*）完成，本项目只做编排；
-- 灵感来自把媒体处理拆成 stage 的思路，实现与取舍见 [docs/DESIGN.md](docs/DESIGN.md)；
-- 许可证：**MIT**，见 [LICENSE](LICENSE)。
+- FFmpeg 及其 `libav*`；Rockchip 的 MPP / RGA；[nyanmisaka/ffmpeg-rockchip](https://github.com/nyanmisaka/ffmpeg-rockchip)
+  与 [nyanmisaka/mpp](https://github.com/nyanmisaka/mpp) 提供了 Rockchip 平台可用的编解码栈。
+- 板卡侧编译与实测环境：野火 LubanCat-1（RK3566）。
+- 许可：[MIT](LICENSE)。

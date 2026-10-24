@@ -10,6 +10,9 @@ erde:
     width: 0
     height: 0
     codec: libx264
+    # "" = 软件编码；rkmpp = RK3566/RK3588 硬件编码；vaapi / cuda = x86 GPU
+    hw: ''
+    hw_device: ''
     bitrate: 2000000
     gop: 12
     fps: 30

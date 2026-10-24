@@ -67,7 +67,7 @@ class Encoder : public PacketSource {
   int audio_channels() const { return channels_; }
   AVSampleFormat audio_sample_format() const { return sample_format_; }
   /// True when the encoder context was opened on a hardware device.
-  bool is_hardware() const { return static_cast<bool>(hw_device_ctx_); }
+  bool is_hardware() const { return rkmpp_ || static_cast<bool>(hw_device_ctx_); }
 
  private:
   Encoder() = default;
@@ -83,6 +83,10 @@ class Encoder : public PacketSource {
   std::deque<Packet> ready_;
   BufferRefPtr hw_device_ctx_;
   BufferRefPtr hw_frames_ctx_;
+  /// Rockchip MPP encoders (h264_rkmpp/hevc_rkmpp) take NV12 system frames and need no
+  /// AVHWDeviceContext, so they get their own flag and a swscale context for conversion.
+  bool rkmpp_ = false;
+  SwsContextPtr sws_;
   AVRational source_time_base_{1, 30};
   int frame_size_ = 0;
   int sample_rate_ = 0;

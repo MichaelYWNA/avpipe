@@ -46,7 +46,7 @@ void print_usage(std::ostream& os) {
      << "  --seconds <s>      gen --audio: duration (default 2.0)\n"
      << "  --rate <hz>        audio sample rate (default 48000 for gen)\n"
      << "  --channels <n>     audio channel count\n"
-     << "  --hw <name>        hardware encode device: vaapi, cuda (default: software)\n"
+     << "  --hw <name>        hardware encoder: rkmpp (RK3566/RK3588), vaapi, cuda\n"
      << "  --hw-device <path> e.g. /dev/dri/renderD128\n"
      << "  --config <file>    read defaults from an INI file (see docs/DESIGN.md)\n"
      << "  --quiet            only print the final stats\n"

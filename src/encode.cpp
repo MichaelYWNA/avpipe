@@ -33,6 +33,10 @@ std::string hardware_codec_name(const std::string& codec, const std::string& dev
   if (device == "cuda") {
     return h264 ? "h264_nvenc" : "hevc_nvenc";
   }
+  // Rockchip RK3566/RK3588: ffmpeg-rockchip exposes h264_rkmpp / hevc_rkmpp encoders.
+  if (device == "rkmpp") {
+    return hevc ? "hevc_rkmpp" : "h264_rkmpp";
+  }
   return codec + "_" + device;
 }
 
@@ -69,7 +73,9 @@ Expected<std::unique_ptr<Encoder>> Encoder::open(const StreamInfo& input,
 Status Encoder::open_video(const StreamInfo& input, const EncodeOptions& options) {
   // Validate the device name first: otherwise "hw=nosuchdev" turns into the misleading
   // "encoder 'libx264_nosuchdev' is not available".
-  if (!options.hw_device.empty() &&
+  // "rkmpp" is not an AVHWDeviceType: the Rockchip encoders take NV12 system frames directly.
+  const bool rkmpp = options.hw_device == "rkmpp";
+  if (!options.hw_device.empty() && !rkmpp &&
       av_hwdevice_find_type_by_name(options.hw_device.c_str()) == AV_HWDEVICE_TYPE_NONE) {
     return fail(Code::unsupported, "unknown hardware device type '" + options.hw_device + "'");
   }
@@ -92,7 +98,9 @@ Status Encoder::open_video(const StreamInfo& input, const EncodeOptions& options
   if (ctx->width <= 0 || ctx->height <= 0) {
     return fail(Code::invalid_argument, "encoder input has no frame size");
   }
-  ctx->pix_fmt = choose_pixel_format(codec);
+  rkmpp_ = rkmpp;
+  // RKMPP wants NV12; everything else keeps the software default (yuv420p when advertised).
+  ctx->pix_fmt = rkmpp ? AV_PIX_FMT_NV12 : choose_pixel_format(codec);
   // 1/fps, like the ffmpeg CLI: containers pick their own time base (AVI wants 1/600 for mpeg4,
   // mp4 1/15360) and rescaling from a coarse base keeps that conversion exact.
   ctx->time_base = AVRational{1, options.fps};
@@ -109,17 +117,18 @@ Status Encoder::open_video(const StreamInfo& input, const EncodeOptions& options
   out_info_.stream_index = 0;
   out_info_.time_base = ctx->time_base;
 
-  if (!options.hw_device.empty()) {
+  if (!options.hw_device.empty() && !rkmpp) {
     if (auto status = setup_hardware(options); status) {
       return status;
     }
   }
 
   AVDictionary* raw_opts = nullptr;
-  if (!options.preset.empty()) {
+  // x264/x265-only options must not reach an RKMPP encoder: it would reject them.
+  if (!options.preset.empty() && !rkmpp) {
     av_dict_set(&raw_opts, "preset", options.preset.c_str(), 0);
   }
-  if (options.crf >= 0 && options.codec.rfind("lib", 0) == 0) {
+  if (options.crf >= 0 && !rkmpp && options.codec.rfind("lib", 0) == 0) {
     av_dict_set(&raw_opts, "crf", std::to_string(options.crf).c_str(), 0);
   }
   const int ret = avcodec_open2(ctx, codec, &raw_opts);
@@ -305,6 +314,38 @@ Status Encoder::push(const Frame& frame) {
       rescaled->pkt_dts = av_rescale_q(rescaled->pkt_dts, source_time_base_, context_->time_base);
     }
     source = rescaled.get();
+  }
+
+  // RKMPP encoders take NV12 in system memory and have no AVHWDeviceContext to upload into,
+  // so a format conversion replaces the vaapi/cuda upload path below.
+  Frame converted;
+  if (rkmpp_ && source->format != context_->pix_fmt) {
+    auto created = Frame::create();
+    if (!created) {
+      return created.error();
+    }
+    converted = created.take();
+    converted->format = context_->pix_fmt;
+    converted->width = context_->width;
+    converted->height = context_->height;
+    if (const int ret = av_frame_get_buffer(converted.get(), 0); ret < 0) {
+      return from_av(ret, "av_frame_get_buffer (rkmpp target)");
+    }
+    SwsContext* cached = sws_getCachedContext(
+        sws_.release(), source->width, source->height, static_cast<AVPixelFormat>(source->format),
+        context_->width, context_->height, static_cast<AVPixelFormat>(context_->pix_fmt),
+        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (cached == nullptr) {
+      return from_av(AVERROR(EINVAL), "sws_getCachedContext (rkmpp)");
+    }
+    sws_.reset(cached);
+    if (sws_scale(sws_.get(), source->data, source->linesize, 0, source->height, converted->data,
+                  converted->linesize) <= 0) {
+      return from_av(AVERROR(EINVAL), "sws_scale (rkmpp)");
+    }
+    converted->pts = source->pts;
+    converted->pkt_dts = source->pkt_dts;
+    source = converted.get();
   }
 
   // Hardware encoders take device surfaces, not system memory: upload before sending.
